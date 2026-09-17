@@ -13,3 +13,7 @@ __pycache__/
 artifacts/train_log*.txt
 bentoml/
 .bentoml/
+
+# Backup gerado por refresh_organ_tables.py --apply; nao versionar.
+artifacts/*.bak
+artifacts/*.json.bak
