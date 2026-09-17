@@ -56,6 +56,9 @@ class Preprocessor:
         # Nomes que o chamador deve informar; ausentes viram o valor padrão.
         self.caller_features: list[str] = meta.get("caller_supplied_features", [])
         self.caller_default: float = float(meta.get("caller_supplied_default", -1))
+        # Derivadas aritmeticamente das de cima; o chamador não as envia.
+        self.derived_from_caller: list[str] = meta.get("derived_from_caller", [])
+        self.calibration: dict = meta.get("calibration") or {}
 
     @classmethod
     def from_json(cls, path: str | Path) -> "Preprocessor":
@@ -108,6 +111,17 @@ class Preprocessor:
             v = p.get(c)
             derived[c] = self.caller_default if v is None else float(v)
 
+        # Razão no par solicitante x órgão: sai de dois campos que o chamador já
+        # envia, logo não amplia o contrato. Indefinida sem pedido anterior
+        # naquele órgão, caso em que vale o mesmo sentinela de "sem histórico".
+        if "prev_reenc_rate_neste_orgao" in self.derived_from_caller:
+            n = derived.get("n_pedidos_previos_neste_orgao", self.caller_default)
+            r = derived.get("prev_reenc_neste_orgao", self.caller_default)
+            derived["prev_reenc_rate_neste_orgao"] = (
+                r / n if (n is not None and n > 0 and r is not None and r >= 0)
+                else self.caller_default
+            )
+
         row: dict[str, object] = {}
         for c in self.categorical:
             # Nível inédito ou ausente vira -1, que o LightGBM trata como faltante.
@@ -125,6 +139,20 @@ class Preprocessor:
         """O chamador informou algum contador de histórico? Se não, o modelo
         opera degradado — mensurável, mas silencioso se não for exposto."""
         return any(payload.get(c) is not None for c in self.caller_features)
+
+
+    def calibrate(self, prob: float) -> float | None:
+        """Escore calibrado (isotônica ajustada na validação), APENAS PARA LEITURA.
+
+        NÃO use para ranquear nem para comparar com o limiar. A isotônica tem
+        regiões planas, e dentro delas a ordenação original é destruída: medido,
+        isso custou 0,56 pp de precisão@5% no teste maturado. O escore cru é que
+        ordena a fila; o calibrado serve para o analista ler um número que
+        significa probabilidade.
+        """
+        if not self.calibration:
+            return None
+        return float(np.interp(prob, self.calibration["grid"], self.calibration["image"]))
 
 
 def risk_label(prob: float, threshold: float) -> str:

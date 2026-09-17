@@ -89,10 +89,17 @@ class LaiTriagem:
         payload = {k: v for k, v in pedido.model_dump().items() if v is not None}
         X = self.prep.transform(payload)
         prob = float(self.booster.predict(X)[0])
+        cal = self.prep.calibrate(prob)
         return {
+            # Escore que ORDENA a fila e define o alerta. É o cru.
             "probabilidade_reencaminhamento": round(prob, 6),
             "alerta": risk_label(prob, self.prep.threshold),
             "threshold": self.prep.threshold,
+            # Só para leitura humana: interpretável como probabilidade, mas NÃO
+            # ordena. A isotônica introduz empates e custou 0,56 pp de
+            # precisão@5% quando usada para ranquear.
+            "probabilidade_calibrada": None if cal is None else round(cal, 6),
+            "calibrada_apenas_para_leitura": True,
             "orgao_conhecido": self.prep.organ_is_known(payload["OrgaoDestinatario"]),
             "orgao_rate_historica": round(float(X["orgao_rate"].iloc[0]), 6),
             "orgao_rate_movel_90d": round(float(X["orgao_rate_movel_90d"].iloc[0]), 6),

@@ -76,10 +76,14 @@ NUM_SOLICITANTE = ["n_pedidos_previos", "prev_reenc_solicitante",
                    "prev_reenc_rate_solicitante", "n_pedidos_previos_neste_orgao",
                    "prev_reenc_neste_orgao", "n_orgaos_distintos_previos",
                    "dias_desde_ultimo_pedido"]
+# Derivadas ARITMETICAMENTE das anteriores, dentro do featurize. O chamador NÃO
+# precisa enviá-las: a razão sai de dois campos que ele já manda. Nenhum dado
+# novo, nenhuma mudança de contrato, nada embarcado.
+NUM_DERIVED_CALLER = ["prev_reenc_rate_neste_orgao"]
 # Embarcadas no artefato (conduta de entidade pública).
 NUM_ORGAO = ["orgao_rate_movel_90d", "orgao_rate_movel_365d",
              "dias_desde_primeiro_pedido_do_orgao"]
-NUM_PROD = NUM_BASE + NUM_SOLICITANTE + NUM_ORGAO
+NUM_PROD = NUM_BASE + NUM_SOLICITANTE + NUM_DERIVED_CALLER + NUM_ORGAO
 
 NUM_LEAKY = ["prazo_dias"]
 CAT_ASSUNTO = ["AssuntoPedido", "SubAssuntoPedido"]
@@ -193,9 +197,17 @@ def build_features(df, births):
     df["prev_reenc_rate_solicitante"] = (
         df.prev_reenc_solicitante / df.n_pedidos_previos.where(df.n_pedidos_previos > 0)
     ).astype("float32")
+    # Item 3: a razão no par solicitante x órgão. A experiência é específica do
+    # órgão (n_pedidos_previos_neste_orgao rende 5x mais que o agregado), então
+    # a taxa nesse par é a extensão natural. Sai de dois campos que o chamador
+    # já envia, logo não amplia o contrato nem retém nada.
+    df["prev_reenc_rate_neste_orgao"] = (
+        df.prev_reenc_neste_orgao
+        / df.n_pedidos_previos_neste_orgao.where(df.n_pedidos_previos_neste_orgao > 0)
+    ).astype("float32")
     # -1 marca "sem histórico", distinguível de zero, e é o que o chamador
     # deve enviar quando não tiver o dado.
-    for c in NUM_SOLICITANTE:
+    for c in NUM_SOLICITANTE + NUM_DERIVED_CALLER:
         df[c] = df[c].fillna(-1).astype("float32")
 
     # --- dinâmica do órgão ---------------------------------------------------
@@ -299,6 +311,64 @@ def run_variant(name, cats, nums, tr, va, te, mask):
     return b, maps, m, cols, pte
 
 
+def fit_calibration(y_val, p_val, y_test, p_test, n_grid=1000):
+    """Calibração isotônica ajustada NA VALIDAÇÃO, avaliada no teste maturado.
+
+    Exportada como duas listas de float (grade + imagem), não como objeto
+    serializado: mantém o artefato livre de `pickle`, e a aplicação em serviço é
+    um `np.interp`.
+
+    NÃO melhora precisão@k. Transformação monótona preserva a ordenação, logo
+    preserva a fila. Serve para (a) o número ser legível como probabilidade,
+    (b) permitir limiar por custo esperado, (c) viabilizar comparação entre
+    modelos distintos, que é pré-requisito de um desenho em dois estágios.
+    O efeito sobre precisão@k é medido abaixo para confirmar que é nulo.
+    """
+    from sklearn.isotonic import IsotonicRegression
+    from sklearn.metrics import brier_score_loss
+
+    iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
+    iso.fit(p_val, y_val)
+    # Grade de tamanho fixo: o número de limiares da isotônica é ilimitado, e
+    # queremos o artefato pequeno e previsível.
+    grid = np.linspace(float(p_val.min()), float(p_val.max()), n_grid)
+    image = iso.predict(grid)
+
+    def apply(p):
+        return np.interp(p, grid, image)
+
+    print(f"\n{'=' * 78}\nCALIBRAÇÃO (isotônica, ajustada na validação {VAL_YEAR})\n{'=' * 78}")
+    for label, y, p in (("validação", y_val, p_val), ("teste maturado", y_test, p_test)):
+        pc = apply(p)
+        print(f"\n  {label}:")
+        print(f"    Brier  cru {brier_score_loss(y, p):.5f}  ->  calibrado "
+              f"{brier_score_loss(y, pc):.5f}")
+        print(f"    média do escore  cru {p.mean():.4f}  calibrado {pc.mean():.4f}"
+              f"   (taxa observada {y.mean():.4f})")
+        # A fila tem de permanecer a mesma: confirmação empírica da monotonia.
+        for frac in (0.01, 0.05, 0.10):
+            a, _ = precision_at_k(y, p, frac)
+            b, _ = precision_at_k(y, pc, frac)
+            print(f"    precisão@{frac*100:.0f}%  cru {a:.4f}  calibrado {b:.4f}"
+                  f"   {'idêntica' if abs(a-b) < 1e-9 else f'delta {b-a:+.4f}'}")
+
+    # Confiabilidade por decil no teste, o que a calibração de fato conserta.
+    pc_t = apply(p_test)
+    dec = pd.qcut(pc_t, 10, labels=False, duplicates="drop")
+    rel = pd.DataFrame({"decil": dec, "previsto": pc_t, "observado": y_test}) \
+        .groupby("decil").agg(n=("previsto", "size"), previsto=("previsto", "mean"),
+                              observado=("observado", "mean")).round(4)
+    print("\n  confiabilidade por decil (teste maturado, escore calibrado):")
+    print(rel.to_string())
+    return {"method": "isotonic", "fitted_on": f"validation_{VAL_YEAR}",
+            "grid": [round(float(x), 8) for x in grid],
+            "image": [round(float(x), 8) for x in image],
+            "brier_raw_test": float(brier_score_loss(y_test, p_test)),
+            "brier_calibrated_test": float(brier_score_loss(y_test, pc_t)),
+            "note": ("monótona: preserva a ordenação e portanto a precisão@k. "
+                     "Serve à legibilidade e ao limiar por custo, não ao ganho.")}
+
+
 def equity_audit(te, p):
     print(f"\n{'=' * 78}\nAUDITORIA DE EQUIDADE — composição da fila de {QUEUE_FRAC*100:.0f}% (TAP 6.1)\n{'=' * 78}")
     k = int(round(QUEUE_FRAC * len(te)))
@@ -383,6 +453,12 @@ def main():
             for c in NUM_PROD}}, columns=cols_prod))
     threshold = float(np.quantile(pva, 1 - QUEUE_FRAC))
 
+    calib = fit_calibration(va.y.to_numpy(), pva, te.y.to_numpy()[mask],
+                            b_prod.predict(pd.DataFrame(
+                                {**{c: encode(te, CAT_BASE, maps_prod)[0][c] for c in CAT_BASE},
+                                 **{c: pd.to_numeric(te[c], errors="coerce").astype("float32").to_numpy()
+                                    for c in NUM_PROD}}, columns=cols_prod))[mask])
+
     meta = {
         "model_file": "model_arrival.txt",
         "created_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -405,6 +481,10 @@ def main():
         "caller_supplied_features": NUM_SOLICITANTE,
         "caller_supplied_default": -1,
         "caller_supplied_rationale": "docs/DECISAO_ESTADO_SOLICITANTE.md",
+        # Derivadas aritmeticamente das de cima, dentro do featurize. O chamador
+        # não as envia.
+        "derived_from_caller": NUM_DERIVED_CALLER,
+        "calibration": calib,
         "excluded_leakage_features": [
             "Situacao", "FoiProrrogado", "DataResposta", "Decisao", "EspecificacaoDecisao",
             "DetalhamentoDecisao", "MotivoNegativaAcesso", "PrazoRestricaoAcesso",
