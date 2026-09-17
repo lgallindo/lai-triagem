@@ -7,10 +7,13 @@ aos pedidos com maior chance de roteamento incorreto.
 
 > ## Leia antes de usar o escore
 >
-> Removidos os vazamentos, **uma tabela de consulta por órgão empata com o
-> modelo treinado**. O serviço expõe os dois lado a lado justamente para que a
-> comparação seja possível. O detalhamento está em
-> [`docs/VERIFICATION.md`](docs/VERIFICATION.md).
+> Cinco famílias de variáveis foram **excluídas por vazamento**, incluindo as
+> duas de maior ganho aparente: `prazo_dias` (+22 pp de PR-AUC) e `protocolo_seq`
+> (+26 pp). O serviço mantém `/score_baseline` — a consulta por órgão, sem
+> modelo — como comparação permanente, porque houve uma fase do projeto em que
+> ela empatava com o modelo. Hoje não empata mais, e a auditoria completa está em
+> [`docs/VERIFICATION.md`](docs/VERIFICATION.md) e
+> [`docs/CAMPOS_POST_HOC.md`](docs/CAMPOS_POST_HOC.md).
 
 ## Resultado principal
 
@@ -94,10 +97,10 @@ uv run python scripts/register_bento.py
 Saída esperada:
 
 ```
-registered: lai_triagem_arrival:wwhbmcfr326v2aav
+registered: lai_triagem_arrival:<etiqueta gerada>
   path     : /tmp/bentoml-model-lai_triagem_arrival-...
-  trees    : 161
-  features : 20
+  trees    : 98
+  features : 30
 ```
 
 A etiqueta (`tag`) muda a cada registro; o serviço usa `:latest`. Confirme:
@@ -148,8 +151,10 @@ a diferença é toda o que se sabe sobre o solicitante.
 curl -sS -X POST http://localhost:3000/score_baseline -H 'Content-Type: application/json' -d '{"pedido":{"OrgaoDestinatario":"CC-PR – Casa Civil da Presidência da República","DataRegistro":"15/09/2026"}}'
 ```
 
-Retorna `0.478643` contra `0.478189` do modelo. Essa quase-identidade **é** o
-achado central do projeto, não um detalhe.
+Retorna `0.478643`, a taxa histórica crua do órgão, contra `0.076869` do
+modelo com histórico informado. A consulta não distingue estreante de veterano;
+o modelo distingue, e é daí que vem a diferença de precisão@5% (24,79% contra
+30,99% no teste maturado).
 
 ## Passo 7 (opcional) — sem BentoML
 
@@ -164,14 +169,19 @@ uv run python examples/minimal_predict.py
 Só é necessário para reproduzir o treinamento. Baixe os dados (~38 MB) e rode:
 
 ```bash
-mkdir -p data/raw
-for y in 2022 2023 2024 2025 2026; do curl -sS -o data/raw/Pedidos_csv_$y.zip "https://dadosabertos-download.cgu.gov.br/FalaBR/Arquivos_FalaBR/Pedidos_csv_$y.zip"; done
-for y in 2022 2023 2024 2025 2026; do unzip -oq data/raw/Pedidos_csv_$y.zip -d data/interim/; done
+mkdir -p data/raw data/interim
+# 2022-2026 formam a coorte; 2012-2021 servem SÓ para datar o nascimento de cada
+# órgão (sem eles, dias_desde_primeiro_pedido_do_orgao fica censurado em 2022).
+for y in $(seq 2012 2026); do
+  curl -sS -o data/raw/Pedidos_csv_$y.zip "https://dadosabertos-download.cgu.gov.br/FalaBR/Arquivos_FalaBR/Pedidos_csv_$y.zip"
+  unzip -oq data/raw/Pedidos_csv_$y.zip -d data/interim/
+done
 uv run python scripts/train.py
 ```
 
-Leva cerca de **20 s** no total (≈2 s por ajuste). Procedimento completo e
-auditável em [`docs/TREINAMENTO.md`](docs/TREINAMENTO.md).
+Leva cerca de **40 s** no total (8 s de carga e featurização, ≈1,7 s por
+ajuste, mais a datação dos órgãos). Procedimento completo e auditável em
+[`docs/TREINAMENTO.md`](docs/TREINAMENTO.md).
 
 ---
 
@@ -183,7 +193,7 @@ resto é opcional e ausência é tratada como valor faltante.
 
 | Campo | Origem | Tipo | Uso no modelo | Razão da inclusão |
 |---|---|---|---|---|
-| `OrgaoDestinatario` | Pedidos | categórico | **sinal dominante** (27,7% do ganho) | Órgão a que o cidadão endereçou. Sobreviveu à auditoria H2: é o endereçado, não o destinatário final |
+| `OrgaoDestinatario` | Pedidos | categórico | **11,56%** do ganho; alimenta as tabelas por órgão, que somam 60,4% | Órgão a que o cidadão endereçou. Sobreviveu à auditoria H2: é o endereçado, não o destinatário final |
 | `DataRegistro` | Pedidos | data | deriva `reg_month`, `reg_dow`, `reg_day` | Único carimbo temporal disponível na chegada |
 | `Esfera` | Pedidos | categórico | baixo | Federal/estadual/municipal; separa regimes de competência |
 | `UF` | Pedidos | categórico | baixo | UF do pedido quando não federal |
