@@ -9,6 +9,19 @@ reencaminhamento **7,32%**. As 459 linhas com
 `Situacao == "Encaminhada por Outro Órgão"` são descartadas da modelagem: estão
 em trânsito, logo seu `OrgaoDestinatario` é o receptor, não o endereçado.
 
+## AVISO — números desta página anteriores ao Fix 1+2
+
+Auditoria externa (17/09/2026) mostrou que as variáveis de histórico do
+solicitante sofriam **vazamento do mesmo dia** e **consumo de desfecho
+imaturo**. Corrigidos os dois, o ganho do modelo sobre a linha de base
+**desapareceu**: precisão@5% no teste maturado passou de 30,99% para **24,67%**,
+contra **24,80%** da consulta por órgão.
+
+Toda seção abaixo que atribua ganho ao histórico do solicitante (G2, T1) está
+medida sobre variáveis vazadas e será republicada. As seções H1 a H5, que tratam
+de exclusão de campos, permanecem válidas. Ver
+[`AUDITORIA_EXTERNA.md`](AUDITORIA_EXTERNA.md).
+
 ## Resumo dos achados
 
 | ID | Hipótese | Veredito | Script |

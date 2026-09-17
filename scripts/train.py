@@ -132,11 +132,17 @@ def organ_birth_table():
     return first
 
 
-def organ_rolling(df, windows=(90, 365)):
-    """Agregados por órgão em janela móvel, ESTRITAMENTE anteriores à data corrente.
+def organ_rolling(df, windows=(90, 365), lag_days=MATURITY_DAYS):
+    """Agregados por órgão em janela móvel DEFASADA.
 
-    side="left" no limite superior exclui a própria linha e todas as do mesmo
-    dia. Sem isso a variável leria o próprio rótulo.
+    Para a linha em `t`, a janela é `(t - lag - w, t - lag]`. A defasagem é o
+    Fix 2: sem ela, a variável consome desfechos de pedidos registrados dias
+    antes, cujo `FoiReencaminhado` no retrato já está resolvido mas que, em
+    produção, ainda não estaria. Auditoria externa mediu 523.719 de 654.718
+    taxas móveis incorporando algum positivo com menos de MATURITY_DAYS.
+
+    A defasagem também subsome o problema do mesmo dia (Fix 1): nada registrado
+    nos últimos `lag` dias entra, e o mesmo dia está nesse intervalo.
     """
     out = {}
     for w in windows:
@@ -144,17 +150,42 @@ def organ_rolling(df, windows=(90, 365)):
         out[f"sum_{w}"] = np.zeros(len(df))
     dates_all = df["_reg"].to_numpy("datetime64[ns]")
     y_all = df["y"].to_numpy()
+    lag = np.timedelta64(lag_days, "D")
     for _, idx in df.groupby("OrgaoDestinatario", sort=False).indices.items():
         order = np.argsort(dates_all[idx], kind="stable")
         idx_s = idx[order]
         d_s = dates_all[idx_s]
         ycum = np.concatenate([[0.0], np.cumsum(y_all[idx_s])])
-        hi = np.searchsorted(d_s, d_s, side="left")
+        # side="right" sobre (t - lag): inclui quem foi registrado ATÉ essa data.
+        hi = np.searchsorted(d_s, d_s - lag, side="right")
         for w in windows:
-            lo = np.searchsorted(d_s, d_s - np.timedelta64(w, "D"), side="left")
+            lo = np.searchsorted(d_s, d_s - lag - np.timedelta64(w, "D"), side="right")
             out[f"cnt_{w}"][idx_s] = hi - lo
             out[f"sum_{w}"][idx_s] = ycum[hi] - ycum[lo]
     return out
+
+
+def lagged_outcome_sums(sub, keys, lag_days=MATURITY_DAYS):
+    """Soma e contagem de `y` sobre linhas do mesmo grupo registradas até
+    `t - lag_days`, para cada linha em `t`.
+
+    Vetorizado com `merge_asof` em vez de laço por grupo: são 240.407
+    solicitantes, e o laço levaria dezenas de segundos.
+    """
+    daily = (sub.groupby(keys + ["_reg"], as_index=False, observed=True)
+                .agg(dy=("y", "sum"), dn=("y", "size"))
+                .sort_values("_reg", kind="stable"))
+    daily["cum_y"] = daily.groupby(keys, observed=True).dy.cumsum()
+    daily["cum_n"] = daily.groupby(keys, observed=True).dn.cumsum()
+
+    left = sub[keys + ["_reg"]].copy()
+    left["_cut"] = left["_reg"] - pd.Timedelta(days=lag_days)
+    left = left.sort_values("_cut", kind="stable")
+    m = pd.merge_asof(left, daily[keys + ["_reg", "cum_y", "cum_n"]],
+                      left_on="_cut", right_on="_reg", by=keys,
+                      direction="backward", suffixes=("", "_d"))
+    return (m.cum_y.fillna(0.0).to_numpy(), m.cum_n.fillna(0.0).to_numpy(),
+            m.index.to_numpy())
 
 
 def build_features(df, births):
@@ -173,7 +204,10 @@ def build_features(df, births):
     df.loc[(df.idade < 10) | (df.idade > 110), "idade"] = np.nan
     # Descarta linhas em trânsito: o OrgaoDestinatario delas é o receptor.
     df = df[df.Situacao.ne("Encaminhada por Outro Órgão")].copy()
-    df = df.sort_values("_reg", kind="stable").reset_index(drop=True)
+    # Ordem temporal real: IdPedido desempata dentro do dia. Verificado --
+    # correlacao +0,996 com a data, 22 inversoes em 655.177 (0,0034%).
+    df["_idp"] = pd.to_numeric(df.IdPedido, errors="coerce")
+    df = df.sort_values(["_reg", "_idp"], kind="stable").reset_index(drop=True)
 
     # --- histórico do solicitante ---------------------------------------------
     # ATENÇÃO -- DEFEITO CONHECIDO, correção planejada (Fix 1+2).
@@ -194,22 +228,46 @@ def build_features(df, births):
     # Solicitante anonimizado ('0') não acumula: não é uma pessoa.
     real = df.IdSolicitante.ne("0")
     sub = df.loc[real]
+
+    # (a) CONTAGENS -- não dependem de desfecho. Que o cidadão já protocolou
+    # antes, inclusive hoje, é fato conhecível no instante da chegada. Ordena
+    # por (_reg, IdPedido): IdPedido é ordem de registro válida, verificado --
+    # correlação +0,996 com a data e só 22 inversões em 655.177 (0,0034%).
+    # Portanto o mesmo dia entra, mas na ordem temporal correta, não na ordem
+    # do arquivo.
     g_sol = sub.groupby("IdSolicitante", sort=False)
     g_pair = sub.groupby(["IdSolicitante", "OrgaoDestinatario"], sort=False)
     first_pair = (~sub.duplicated(["IdSolicitante", "OrgaoDestinatario"])).astype("int8")
-    vals = {
+    counts = {
         "n_pedidos_previos": g_sol.cumcount(),
-        "prev_reenc_solicitante": g_sol.y.cumsum() - sub.y,
         "n_pedidos_previos_neste_orgao": g_pair.cumcount(),
-        "prev_reenc_neste_orgao": g_pair.y.cumsum() - sub.y,
         "n_orgaos_distintos_previos": first_pair.groupby(sub.IdSolicitante).cumsum() - first_pair,
         "dias_desde_ultimo_pedido": g_sol._reg.diff().dt.days,
     }
-    for col, v in vals.items():
+    for col, v in counts.items():
         df[col] = np.nan
         df.loc[real, col] = v.astype("float32")
+
+    # (b) DESFECHOS -- dependem do rótulo, logo exigem defasagem de maturação.
+    # Só contam pedidos anteriores registrados até `t - MATURITY_DAYS`, cujo
+    # FoiReencaminhado teve tempo de se firmar. Isso elimina de uma vez o
+    # vazamento do mesmo dia (159.320 linhas) e o consumo de desfecho imaturo
+    # (53.434 linhas), ambos medidos por auditoria externa.
+    for col, keys in (("prev_reenc_solicitante", ["IdSolicitante"]),
+                      ("prev_reenc_neste_orgao", ["IdSolicitante", "OrgaoDestinatario"])):
+        cum_y, cum_n, order = lagged_outcome_sums(sub, keys)
+        s = pd.Series(cum_y, index=order)
+        df[col] = np.nan
+        df.loc[real, col] = s.reindex(sub.index).to_numpy().astype("float32")
+        # A contagem madura acompanha, para a razão ter denominador coerente.
+        df[col + "_den"] = np.nan
+        df.loc[real, col + "_den"] = pd.Series(cum_n, index=order).reindex(
+            sub.index).to_numpy().astype("float32")
+    # As razões usam o denominador MADURO, não a contagem total: dividir
+    # desfechos maduros por contagem total subestimaria a taxa.
     df["prev_reenc_rate_solicitante"] = (
-        df.prev_reenc_solicitante / df.n_pedidos_previos.where(df.n_pedidos_previos > 0)
+        df.prev_reenc_solicitante
+        / df.prev_reenc_solicitante_den.where(df.prev_reenc_solicitante_den > 0)
     ).astype("float32")
     # Item 3: a razão no par solicitante x órgão. A experiência é específica do
     # órgão (n_pedidos_previos_neste_orgao rende 5x mais que o agregado), então
@@ -217,7 +275,7 @@ def build_features(df, births):
     # já envia, logo não amplia o contrato nem retém nada.
     df["prev_reenc_rate_neste_orgao"] = (
         df.prev_reenc_neste_orgao
-        / df.n_pedidos_previos_neste_orgao.where(df.n_pedidos_previos_neste_orgao > 0)
+        / df.prev_reenc_neste_orgao_den.where(df.prev_reenc_neste_orgao_den > 0)
     ).astype("float32")
     # -1 marca "sem histórico", distinguível de zero, e é o que o chamador
     # deve enviar quando não tiver o dado.

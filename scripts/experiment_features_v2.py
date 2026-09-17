@@ -50,7 +50,12 @@ import pandas as pd
 from sklearn.metrics import average_precision_score, roc_auc_score
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from scripts.train import precision_at_k  # noqa: E402
+from scripts.train import (  # noqa: E402
+    build_features as train_build_features,
+    organ_birth_table as train_organ_birth_table,
+    organ_rolling as train_organ_rolling,
+    precision_at_k,
+)
 
 ROOT = Path.home() / "lai-triagem"
 INTERIM = ROOT / "data" / "interim"
@@ -351,10 +356,20 @@ def main():
     # o prefixo [0:5] mapeia 23 órgãos na mediana -- logo a fatia codifica a
     # unidade registradora, não um sequencial neutro. Vazamento, não ganho.
     QUARENTENA = {"T3_protocolo"}
+    # FIX 3: seleciona por val_pr (validação 2025), NUNCA por test_pr. A versão
+    # anterior escolhia os grupos olhando 2026 e depois anunciava o ganho no
+    # mesmo 2026 -- seleção no conjunto de teste, apontada por auditoria
+    # externa. O teste volta a ser o que deve ser: nunca consultado na escolha.
+    SELECTION_KEY = "val_pr"
+    assert not SELECTION_KEY.startswith("test"), \
+        "seleção não pode ler o conjunto de teste"
+    ref_sel = next(m for n, _, m in rows if n == "base + G2 [referência]")[SELECTION_KEY]
     winners = [f for name, feats in GROUPS.items()
                for f in feats
                if name not in QUARENTENA
-               and next(m for n, _, m in rows if n == name)["test_pr"] - ref > 0.0]
+               and next(m for n, _, m in rows if n == name)[SELECTION_KEY] - ref_sel > 0.0]
+    print(f"\n  seleção por {SELECTION_KEY} (referência {ref_sel:.4f}); "
+          f"o teste NÃO participa da escolha")
     print(f"\n  em quarentena (vazamento confirmado): {sorted(QUARENTENA)}")
     if winners:
         m_comb, b_comb, cols = fit_eval(tr, va, te, mask, CAT_BASE, NUM_BASE + G2 + winners)

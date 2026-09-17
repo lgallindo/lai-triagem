@@ -1,6 +1,6 @@
 datando a primeira aparição de cada órgão (2012 em diante)...
   órgãos datados: 880   mais antigo 2012-05-15
-carregado e featurizado em 9.8s
+carregado e featurizado em 6.8s
 treino [2022, 2023, 2024] n=391,425  val 2025 n=150,142  teste 2026 n=113,151 (maturado 86,096)
 taxa de reenc.  treino 8.03%  val 6.77%  teste 5.23%
 
@@ -29,173 +29,173 @@ top 20% 17219   13.68% 2.38x                3066              2396
 ==============================================================================
 VARIANTE arrival   (14 categóricas + 17 numéricas)
 ==============================================================================
-  ajuste: 1.29s   melhor iteração=52   árvores=52
+  ajuste: 2.18s   melhor iteração=161   árvores=161
 
   -- VALIDAÇÃO 2025 --   n=150,142  positivos=10,161  taxa-base=6.77%
-     ROC-AUC 0.8034   PR-AUC 0.2923
+     ROC-AUC 0.7756   PR-AUC 0.2184
    fila     k precisao ganho  empatados_no_corte  usados_do_empate
- top 1%  1501   60.23% 8.90x                   1                 1
- top 2%  3003   50.38% 7.44x                   1                 1
- top 5%  7507   35.55% 5.25x                   1                 1
-top 10% 15014   27.68% 4.09x                   7                 1
-top 20% 30028   19.65% 2.90x                 240                12
+ top 1%  1501   42.54% 6.29x                  17                15
+ top 2%  3003   36.56% 5.40x                   2                 1
+ top 5%  7507   28.21% 4.17x                   1                 1
+top 10% 15014   23.80% 3.52x                  35                24
+top 20% 30028   18.28% 2.70x                   7                 7
 
   -- TESTE 2026 (todas as linhas, CENSURADO) --   n=113,151  positivos=5,923  taxa-base=5.23%
-     ROC-AUC 0.7977   PR-AUC 0.2454
+     ROC-AUC 0.7632   PR-AUC 0.1695
    fila     k precisao ganho  empatados_no_corte  usados_do_empate
- top 1%  1132   50.92% 9.73x                   5                 4
- top 2%  2263   41.49% 7.93x                  28                17
- top 5%  5658   29.59% 5.65x                   1                 1
-top 10% 11315   21.51% 4.11x                  27                10
-top 20% 22630   15.06% 2.88x                   1                 1
+ top 1%  1132   33.13% 6.33x                   1                 1
+ top 2%  2263   29.96% 5.72x                   2                 1
+ top 5%  5658   22.59% 4.32x                   4                 4
+top 10% 11315   17.99% 3.44x                   1                 1
+top 20% 22630   13.67% 2.61x                  21                18
 
   -- TESTE 2026 (maturado: registro <= 60d antes do retrato) --   n=86,096  positivos=4,950  taxa-base=5.75%
-     ROC-AUC 0.7999   PR-AUC 0.2619
+     ROC-AUC 0.7653   PR-AUC 0.1836
    fila     k precisao ganho  empatados_no_corte  usados_do_empate
- top 1%   861   54.24% 9.43x                   1                 1
- top 2%  1722   44.02% 7.66x                   2                 2
- top 5%  4305   31.36% 5.45x                   1                 1
-top 10%  8610   23.61% 4.11x                 189                71
-top 20% 17219   16.59% 2.89x                 106                26
+ top 1%   861   35.19% 6.12x                   3                 1
+ top 2%  1722   32.17% 5.60x                   1                 1
+ top 5%  4305   24.67% 4.29x                   3                 1
+top 10%  8610   19.81% 3.45x                   3                 3
+top 20% 17219   15.10% 2.63x                  40                37
      (censura: 86,096 de 113,151 maturadas; positivos 5.75% maturadas vs 3.60% recentes)
 
   15 variáveis de maior ganho (%):
-orgao_rate                             43.09
-orgao_rate_movel_90d                   16.50
-prev_reenc_rate_neste_orgao            10.79
-OrgaoDestinatario                       6.61
-Municipio_sol                           3.98
-n_pedidos_previos_neste_orgao           3.96
-orgao_rate_movel_365d                   3.94
-prev_reenc_rate_solicitante             2.54
-dias_desde_primeiro_pedido_do_orgao     1.41
-dias_desde_ultimo_pedido                1.31
-n_pedidos_previos                       1.06
-prev_reenc_neste_orgao                  1.03
-OrigemSolicitacao                       0.55
-n_orgaos_distintos_previos              0.54
-reg_month                               0.50
+orgao_rate                             40.51
+OrgaoDestinatario                      20.19
+orgao_rate_movel_365d                  10.20
+Municipio_sol                           8.73
+n_pedidos_previos_neste_orgao           3.34
+orgao_rate_movel_90d                    2.81
+dias_desde_primeiro_pedido_do_orgao     2.63
+n_pedidos_previos                       1.92
+n_orgaos_distintos_previos              1.28
+dias_desde_ultimo_pedido                1.19
+idade                                   1.13
+reg_month                               0.87
+reg_day                                 0.86
+Profissao                               0.62
+UF_sol                                  0.56
 
-  gravado model_arrival.txt  (291 KB)
+  gravado model_arrival.txt  (933 KB)
 
 ==============================================================================
 VARIANTE with_assunto   (16 categóricas + 17 numéricas)
 ==============================================================================
-  ajuste: 1.27s   melhor iteração=45   árvores=45
+  ajuste: 2.43s   melhor iteração=137   árvores=137
 
   -- VALIDAÇÃO 2025 --   n=150,142  positivos=10,161  taxa-base=6.77%
-     ROC-AUC 0.8086   PR-AUC 0.2897
+     ROC-AUC 0.7832   PR-AUC 0.2291
    fila     k precisao ganho  empatados_no_corte  usados_do_empate
- top 1%  1501   60.43% 8.93x                   1                 1
- top 2%  3003   48.82% 7.21x                   1                 1
- top 5%  7507   34.90% 5.16x                 434               127
-top 10% 15014   27.04% 4.00x                   3                 2
-top 20% 30028   20.12% 2.97x                   1                 1
+ top 1%  1501   42.90% 6.34x                   1                 1
+ top 2%  3003   37.93% 5.60x                   1                 1
+ top 5%  7507   30.77% 4.55x                   1                 1
+top 10% 15014   24.30% 3.59x                   1                 1
+top 20% 30028   18.47% 2.73x                   1                 1
 
   -- TESTE 2026 (todas as linhas, CENSURADO) --   n=113,151  positivos=5,923  taxa-base=5.23%
-     ROC-AUC 0.7890   PR-AUC 0.2073
+     ROC-AUC 0.7513   PR-AUC 0.1525
    fila     k precisao ganho  empatados_no_corte  usados_do_empate
- top 1%  1132   47.45% 9.07x                   6                 1
- top 2%  2263   30.60% 5.85x                 814               608
- top 5%  5658   23.97% 4.58x                   2                 1
-top 10% 11315   19.81% 3.78x                  15                 5
-top 20% 22630   15.04% 2.87x                 151               123
+ top 1%  1132   30.30% 5.79x                   1                 1
+ top 2%  2263   25.59% 4.89x                   1                 1
+ top 5%  5658   19.87% 3.80x                   1                 1
+top 10% 11315   16.39% 3.13x                   2                 1
+top 20% 22630   13.20% 2.52x                   1                 1
 
   -- TESTE 2026 (maturado: registro <= 60d antes do retrato) --   n=86,096  positivos=4,950  taxa-base=5.75%
-     ROC-AUC 0.7878   PR-AUC 0.2186
+     ROC-AUC 0.7542   PR-AUC 0.1637
    fila     k precisao ganho  empatados_no_corte  usados_do_empate
- top 1%   861   50.87% 8.85x                   1                 1
- top 2%  1722   32.60% 5.67x                 644               444
- top 5%  4305   24.95% 4.34x                   2                 1
-top 10%  8610   20.81% 3.62x                   1                 1
-top 20% 17219   16.26% 2.83x                   3                 1
+ top 1%   861   31.82% 5.54x                   1                 1
+ top 2%  1722   27.18% 4.73x                   3                 2
+ top 5%  4305   20.84% 3.62x                   3                 2
+top 10%  8610   17.60% 3.06x                   1                 1
+top 20% 17219   14.43% 2.51x                   1                 1
      (censura: 86,096 de 113,151 maturadas; positivos 5.75% maturadas vs 3.60% recentes)
 
   15 variáveis de maior ganho (%):
-orgao_rate                             44.87
-orgao_rate_movel_90d                    8.49
-prev_reenc_rate_neste_orgao             8.19
-AssuntoPedido                           7.56
-SubAssuntoPedido                        6.94
-OrgaoDestinatario                       6.81
-n_pedidos_previos_neste_orgao           3.38
-orgao_rate_movel_365d                   2.78
-prev_reenc_rate_solicitante             2.57
-Municipio_sol                           2.27
-dias_desde_primeiro_pedido_do_orgao     1.56
-prev_reenc_neste_orgao                  1.13
-dias_desde_ultimo_pedido                1.06
-n_pedidos_previos                       0.62
-n_orgaos_distintos_previos              0.37
+orgao_rate                             41.48
+OrgaoDestinatario                      14.72
+AssuntoPedido                          11.05
+SubAssuntoPedido                        9.64
+Municipio_sol                           6.17
+orgao_rate_movel_365d                   4.03
+orgao_rate_movel_90d                    3.81
+n_pedidos_previos_neste_orgao           2.08
+dias_desde_primeiro_pedido_do_orgao     2.05
+n_pedidos_previos                       0.70
+dias_desde_ultimo_pedido                0.70
+n_orgaos_distintos_previos              0.64
+idade                                   0.48
+reg_month                               0.43
+UF                                      0.32
 
-  gravado model_with_assunto.txt  (338 KB)
+  gravado model_with_assunto.txt  (1065 KB)
 
 ==============================================================================
 VARIANTE LEAKY_with_prazo   (14 categóricas + 18 numéricas)
 ==============================================================================
-  ajuste: 1.86s   melhor iteração=123   árvores=123
+  ajuste: 1.66s   melhor iteração=108   árvores=108
 
   -- VALIDAÇÃO 2025 --   n=150,142  positivos=10,161  taxa-base=6.77%
-     ROC-AUC 0.8739   PR-AUC 0.4845
+     ROC-AUC 0.8536   PR-AUC 0.4422
    fila     k precisao  ganho  empatados_no_corte  usados_do_empate
- top 1%  1501   89.14% 13.17x                   1                 1
- top 2%  3003   76.42% 11.29x                   1                 1
- top 5%  7507   53.36%  7.89x                   1                 1
-top 10% 15014   37.36%  5.52x                   4                 2
-top 20% 30028   24.67%  3.65x                   2                 1
+ top 1%  1501   87.74% 12.96x                   1                 1
+ top 2%  3003   72.56% 10.72x                  29                 3
+ top 5%  7507   49.14%  7.26x                   1                 1
+top 10% 15014   34.39%  5.08x                   1                 1
+top 20% 30028   23.48%  3.47x                   2                 1
 
   -- TESTE 2026 (todas as linhas, CENSURADO) --   n=113,151  positivos=5,923  taxa-base=5.23%
-     ROC-AUC 0.8689   PR-AUC 0.4311
+     ROC-AUC 0.8463   PR-AUC 0.3835
    fila     k precisao  ganho  empatados_no_corte  usados_do_empate
- top 1%  1132   80.83% 15.44x                   1                 1
- top 2%  2263   66.68% 12.74x                   1                 1
- top 5%  5658   44.01%  8.41x                   1                 1
-top 10% 11315   29.34%  5.61x                   1                 1
-top 20% 22630   19.13%  3.66x                  14                 2
+ top 1%  1132   78.89% 15.07x                   1                 1
+ top 2%  2263   61.20% 11.69x                   1                 1
+ top 5%  5658   39.29%  7.51x                   1                 1
+top 10% 11315   26.73%  5.11x                   2                 1
+top 20% 22630   17.87%  3.41x                   1                 1
 
   -- TESTE 2026 (maturado: registro <= 60d antes do retrato) --   n=86,096  positivos=4,950  taxa-base=5.75%
-     ROC-AUC 0.8704   PR-AUC 0.4475
+     ROC-AUC 0.8487   PR-AUC 0.4022
    fila     k precisao  ganho  empatados_no_corte  usados_do_empate
- top 1%   861   83.74% 14.56x                   1                 1
- top 2%  1722   70.56% 12.27x                   1                 1
- top 5%  4305   47.46%  8.25x                   3                 2
-top 10%  8610   32.16%  5.59x                   7                 2
-top 20% 17219   21.10%  3.67x                   1                 1
+ top 1%   861   81.07% 14.10x                   1                 1
+ top 2%  1722   65.10% 11.32x                   1                 1
+ top 5%  4305   42.76%  7.44x                   7                 6
+top 10%  8610   29.69%  5.16x                   1                 1
+top 20% 17219   19.69%  3.42x                   1                 1
      (censura: 86,096 de 113,151 maturadas; positivos 5.75% maturadas vs 3.60% recentes)
 
   15 variáveis de maior ganho (%):
-prazo_dias                             35.46
-orgao_rate                             19.06
-OrgaoDestinatario                      11.66
-orgao_rate_movel_90d                    8.26
-prev_reenc_rate_neste_orgao             4.77
-reg_dow                                 4.09
-Municipio_sol                           3.59
-orgao_rate_movel_365d                   3.42
-n_pedidos_previos_neste_orgao           2.42
-prev_reenc_rate_solicitante             1.30
-dias_desde_primeiro_pedido_do_orgao     0.90
-reg_month                               0.89
-reg_day                                 0.71
-dias_desde_ultimo_pedido                0.70
-n_pedidos_previos                       0.63
+prazo_dias                             37.84
+orgao_rate                             25.24
+OrgaoDestinatario                      13.01
+reg_dow                                 4.58
+Municipio_sol                           4.12
+orgao_rate_movel_90d                    3.47
+orgao_rate_movel_365d                   3.35
+dias_desde_primeiro_pedido_do_orgao     1.67
+n_pedidos_previos_neste_orgao           1.56
+reg_month                               1.11
+n_orgaos_distintos_previos              0.69
+reg_day                                 0.64
+n_pedidos_previos                       0.54
+dias_desde_ultimo_pedido                0.50
+idade                                   0.41
 
-  gravado model_LEAKY_with_prazo.txt  (702 KB)
+  gravado model_LEAKY_with_prazo.txt  (622 KB)
 
 ==============================================================================
 CUSTO DOS VAZAMENTOS (variantes diagnósticas)
 ==============================================================================
-  AssuntoPedido  val           PR-AUC honesta 0.2923 vs 0.2897   -0.25 pp
-  AssuntoPedido  test_matured  PR-AUC honesta 0.2619 vs 0.2186   -4.33 pp
-  prazo_dias     val           PR-AUC honesta 0.2923 vs 0.4845   +19.22 pp
-  prazo_dias     test_matured  PR-AUC honesta 0.2619 vs 0.4475   +18.55 pp
+  AssuntoPedido  val           PR-AUC honesta 0.2184 vs 0.2291   +1.07 pp
+  AssuntoPedido  test_matured  PR-AUC honesta 0.1836 vs 0.1637   -1.99 pp
+  prazo_dias     val           PR-AUC honesta 0.2184 vs 0.4422   +22.39 pp
+  prazo_dias     test_matured  PR-AUC honesta 0.1836 vs 0.4022   +21.86 pp
   Nenhum dos dois é realizável em produção; ver docs/VERIFICATION.md.
 
 ==============================================================================
 MODELO vs LINHA DE BASE (teste maturado)
 ==============================================================================
-  PR-AUC      base 0.1641  ->  modelo 0.2619   (+59.6%)
-  precisão@5% base 0.2480  ->  modelo 0.3136   (+26.4%)
+  PR-AUC      base 0.1641  ->  modelo 0.1836   (+11.9%)
+  precisão@5% base 0.2480  ->  modelo 0.2467   (-0.5%)
 
 ==============================================================================
 AUDITORIA DE EQUIDADE — composição da fila de 10% (TAP 6.1)
@@ -204,61 +204,61 @@ AUDITORIA DE EQUIDADE — composição da fila de 10% (TAP 6.1)
   Escolaridade:
                       populacao_%  fila_alerta_%  razao
 Escolaridade                                           
-NaN                         80.19          79.45   0.99
-Ensino Superior              7.46           8.36   1.12
-Pós-graduação                5.72           4.91   0.86
-Mestrado/Doutorado           3.39           2.66   0.78
-Ensino Médio                 2.92           4.21   1.44
-Ensino Fundamental           0.25           0.35   1.40
-Sem instrução formal         0.07           0.05   0.71
+NaN                         80.19          78.20   0.98
+Ensino Superior              7.46           9.44   1.27
+Pós-graduação                5.72           4.49   0.78
+Mestrado/Doutorado           3.39           3.11   0.92
+Ensino Médio                 2.92           4.26   1.46
+Ensino Fundamental           0.25           0.43   1.72
+Sem instrução formal         0.07           0.07   1.00
 
   Genero:
            populacao_%  fila_alerta_%  razao
 Genero                                      
-NaN              75.29          74.32   0.99
-Masculino        15.59          17.07   1.09
-Feminino          9.05           8.52   0.94
-Outros            0.07           0.10   1.43
+NaN              75.29          72.46   0.96
+Masculino        15.59          18.39   1.18
+Feminino          9.05           9.06   1.00
+Outros            0.07           0.09   1.29
 
   TipoDemandante:
                  populacao_%  fila_alerta_%  razao
 TipoDemandante                                    
-Pessoa Física          80.76          84.61   1.05
-NaN                    15.04          12.51   0.83
-Pessoa Juridica         4.20           2.88   0.69
+Pessoa Física          80.76          84.90   1.05
+NaN                    15.04          12.61   0.84
+Pessoa Juridica         4.20           2.48   0.59
 
 ==============================================================================
 CALIBRAÇÃO (isotônica, ajustada na validação 2025)
 ==============================================================================
 
   validação:
-    Brier  cru 0.05526  ->  calibrado 0.05512
-    média do escore  cru 0.0704  calibrado 0.0678   (taxa observada 0.0677)
-    precisão@1%  cru 0.6023  calibrado 0.6023   idêntica
-    precisão@5%  cru 0.3555  calibrado 0.3581   delta +0.0025
-    precisão@10%  cru 0.2768  calibrado 0.2768   idêntica
+    Brier  cru 0.05807  ->  calibrado 0.05784
+    média do escore  cru 0.0693  calibrado 0.0678   (taxa observada 0.0677)
+    precisão@1%  cru 0.4254  calibrado 0.4314   delta +0.0060
+    precisão@5%  cru 0.2821  calibrado 0.2841   delta +0.0020
+    precisão@10%  cru 0.2380  calibrado 0.2391   delta +0.0011
 
   teste maturado:
-    Brier  cru 0.04835  ->  calibrado 0.04826
-    média do escore  cru 0.0672  calibrado 0.0648   (taxa observada 0.0575)
-    precisão@1%  cru 0.5424  calibrado 0.5402   delta -0.0022
-    precisão@5%  cru 0.3136  calibrado 0.3119   delta -0.0016
-    precisão@10%  cru 0.2361  calibrado 0.2352   delta -0.0008
+    Brier  cru 0.05109  ->  calibrado 0.05091
+    média do escore  cru 0.0690  calibrado 0.0679   (taxa observada 0.0575)
+    precisão@1%  cru 0.3519  calibrado 0.3476   delta -0.0043
+    precisão@5%  cru 0.2467  calibrado 0.2395   delta -0.0072
+    precisão@10%  cru 0.1981  calibrado 0.1971   delta -0.0011
 
   confiabilidade por decil (teste maturado, escore calibrado):
            n  previsto  observado
 decil                            
-0       8614    0.0030     0.0023
-1      10676    0.0073     0.0058
-2       6955    0.0133     0.0115
-3       8195    0.0260     0.0236
-4       9518    0.0333     0.0318
-5       7700    0.0422     0.0377
-6       8938    0.0619     0.0554
-7      10836    0.0916     0.0787
-8       6320    0.1205     0.1036
-9       8344    0.2661     0.2396
+0       8610    0.0052     0.0034
+1       9788    0.0120     0.0102
+2       7431    0.0203     0.0184
+3      11295    0.0319     0.0278
+4       7422    0.0386     0.0369
+5       8025    0.0539     0.0427
+6      12278    0.0781     0.0683
+7       4245    0.0974     0.0796
+8       9618    0.1302     0.1067
+9       7384    0.2475     0.2100
 
 gravado preprocessor.json (397 KB)
-limiar da fila de 10%: 0.159047
-TEMPO TOTAL: 33.9s
+limiar da fila de 10%: 0.162928
+TEMPO TOTAL: 36.1s

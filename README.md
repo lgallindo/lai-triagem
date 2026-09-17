@@ -19,32 +19,44 @@ aos pedidos com maior chance de roteamento incorreto.
 
 Conjunto de teste 2026 maturado (registrados com ≥60 dias de antecedência do
 retrato), treino em 2022–2024, validação em 2025. Taxa-base 5,75%.
-Modelo de produção: **30 variáveis, 98 árvores, 1,7 s de ajuste**.
+Modelo de produção: **31 variáveis, 52 árvores, ~2 s de ajuste**.
 
 | Escore | ROC-AUC | PR-AUC | prec@1% | prec@5% | prec@10% |
 |---|---|---|---|---|---|
-| Consulta histórica por órgão (sem modelo) | 0,7434 | 0,1641 | 36,12% | 24,79% | 17,79% |
-| **LightGBM, 98 árvores** | **0,8001** | **0,2556** | **52,03%** | **30,99%** | **23,28%** |
-| Ganho relativo | — | **+56%** | **+44%** | **+25%** | **+31%** |
+| Consulta histórica por órgão (sem modelo) | 0,7434 | 0,1641 | 35,67% | **24,80%** | 17,86% |
+| LightGBM, 31 variáveis | 0,7653 | **0,1836** | 35,19% | 24,67% | **19,81%** |
+| Diferença | — | +11,9% | −1,3% | **−0,5%** | +10,9% |
 
-**Ganho de 5,4× na fila dos 5% mais arriscados.** O modelo supera com folga a
-consulta simples — o que **não era verdade** nas versões anteriores deste
-repositório, e passou a ser depois de duas descobertas:
+**O modelo NÃO supera a consulta por órgão em precisão@5%.** Ganha em PR-AUC e
+em precisão@10%, perde em @1% e @5%. A vantagem está dentro do ruído.
 
-- **A experiência do solicitante é específica do órgão.**
-  `n_pedidos_previos_neste_orgao` vale 6,66% do ganho contra 1,08% do agregado
-  `n_pedidos_previos`. Estreantes são reencaminhados a 8,33%, veteranos com 50+
-  pedidos a 5,35%: quem já usou a LAI aprende qual órgão endereçar.
-- **A taxa por órgão precisa ser móvel.** `orgao_rate_movel_90d` é a segunda
-  variável mais importante (16,13%). A tabela estática ajustada em 2022–2024
-  estava desatualizada — a taxa-base caiu de 8,03% para 5,23% no período.
+> ### Este número já foi muito melhor, e era vazamento
+>
+> Versões anteriores deste README anunciavam **+26,4%** sobre a linha de base
+> (precisão@5% de 30,99%). Auditoria externa independente mostrou que o ganho
+> vinha de dois defeitos nas variáveis de histórico:
+>
+> - **vazamento do mesmo dia:** 159.320 linhas recebiam histórico de um pedido
+>   do mesmo solicitante no mesmo dia, 22.793 com rótulo positivo;
+> - **desfecho imaturo:** 53.434 linhas consumiam resultado de pedido com menos
+>   de 60 dias, e 523.719 das taxas móveis incorporavam algum — desfecho que em
+>   produção ainda não seria conhecido.
+>
+> Corrigidos os dois (defasagem de maturação nas variáveis de desfecho, ordem
+> `(data, IdPedido)` nas de contagem), o ganho desapareceu. Registro completo em
+> [`docs/AUDITORIA_EXTERNA.md`](docs/AUDITORIA_EXTERNA.md).
 
-O efeito é visível numa única requisição. Mesmo pedido, mesmo órgão:
+**A conclusão original do projeto volta a valer:** com variáveis honestas de
+chegada, praticamente todo o sinal recuperável é "alguns órgãos são
+cronicamente mal endereçados", e uma tabela de consulta de uma linha captura
+isso. O ganho por variável, após a correção, confirma — `orgao_rate` 40,51% +
+`OrgaoDestinatario` 20,19% + as duas taxas móveis 13,01% somam **73,7% de
+identidade do órgão**; todo o histórico do solicitante soma menos de 8%.
 
-```
-estreante (0 pedidos)            P=0,2965  ALTO RISCO
-veterano (80 pedidos, 12 aqui)   P=0,0914  BAIXO RISCO
-```
+Efeito colateral notável da defasagem: `orgao_rate_movel_90d` caiu de 16,50%
+para **2,81%** do ganho, enquanto a janela de 365 dias subiu para **10,20%**.
+Defasada em 60 dias, uma janela de 90 dias fica quase toda obsoleta — perde
+exatamente a atualidade que a justificava.
 
 ## Contrato de dados: o que o chamador informa
 
@@ -151,10 +163,10 @@ a diferença é toda o que se sabe sobre o solicitante.
 curl -sS -X POST http://localhost:3000/score_baseline -H 'Content-Type: application/json' -d '{"pedido":{"OrgaoDestinatario":"CC-PR – Casa Civil da Presidência da República","DataRegistro":"15/09/2026"}}'
 ```
 
-Retorna `0.478643`, a taxa histórica crua do órgão, contra `0.076869` do
-modelo com histórico informado. A consulta não distingue estreante de veterano;
-o modelo distingue, e é daí que vem a diferença de precisão@5% (24,79% contra
-30,99% no teste maturado).
+Retorna `0.478643`, a taxa histórica crua do órgão. O modelo distingue
+estreante de veterano e a consulta não — mas, após a correção do vazamento, essa
+distinção **não se traduz** em ganho de precisão@5% (24,80% da base contra
+24,67% do modelo). Mantemos o endpoint porque a comparação é o achado.
 
 ## Passo 7 (opcional) — sem BentoML
 
