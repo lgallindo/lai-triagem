@@ -17,6 +17,7 @@ em trânsito, logo seu `OrgaoDestinatario` é o receptor, não o endereçado.
 | H2 | `OrgaoDestinatario` é sobrescrito no reencaminhamento | **REFUTADA — mantido** | `verify_h2_final.py`, `verify_h2_baserate.py` |
 | H3 | `prazo_dias` é variável de chegada | **REFUTADA — é vazamento, excluído** | `verify_h3_prazo.py` |
 | H4 | Variáveis demográficas do solicitante são utilizáveis | **MAJORITARIAMENTE INDISPONÍVEIS** | `verify_h3_prazo.py` |
+| H5 | `protocolo_seq` (fatia do `ProtocoloPedido`) é variável de chegada | **REFUTADA — é vazamento, em quarentena** | `verify_h5_protocolo.py` |
 
 ## H1 — `AssuntoPedido` é saída da triagem
 
@@ -200,3 +201,116 @@ sobre a LAI, não apenas uma variável útil.
 tempo de inferência, o que o serviço atual — deliberadamente sem estado — não
 tem. Adotá-las obriga a manter um contador por `IdSolicitante`. A decisão é de
 arquitetura, não de modelagem.
+
+## H5 — `protocolo_seq` é vazamento (terceiro caso)
+
+Na segunda rodada de engenharia de variáveis (`experiment_features_v2.py`), a
+fatia `ProtocoloPedido[5:11]` elevou a PR-AUC de teste de 0,2018 para **0,4595**
+— salto de 128% a partir de **uma única variável derivada de um identificador**.
+Pelo protocolo de [`CAMPOS_POST_HOC.md`](CAMPOS_POST_HOC.md), isso é suspeita,
+não comemoração.
+
+`verify_h5_protocolo.py` refutou a variável em dois passos.
+
+**A presunção de formato estava errada.** Supusemos NUP
+`OOOOO SSSSSS AAAA DD`, com `[0:5]` identificando o órgão. Mas há **1.166
+prefixos `[0:5]` distintos para 867 órgãos**, com **mediana de 23 órgãos por
+prefixo** (máximo 219). O prefixo não é código de órgão, logo `[5:11]` não é um
+sequencial neutro.
+
+**Separação dentro do mesmo órgão e ano, que nenhuma variável legítima de
+chegada produziria:**
+
+| Órgão-ano | Q1 | Q2 | Q3 | Q4 |
+|---|---|---|---|---|
+| INSS 2022 (n=12.146) | **28,38%** | 15,25% | 12,55% | **0,36%** |
+| INSS 2023 (n=9.898) | **30,67%** | 2,10% | 0,57% | 1,13% |
+| ANVISA 2023 (n=7.004) | 5,60% | 1,88% | 1,60% | 1,94% |
+
+Razão de **79×** entre o primeiro e o último quartil num único órgão-ano. A
+correlação com a data é de apenas +0,23 a +0,28, então não é efeito temporal.
+A leitura compatível com todas as evidências é que a fatia codifica a **unidade
+administrativa registradora**, cujo comportamento de encaminhamento é quase
+determinístico — informação sobre o canal, não sobre o pedido.
+
+Mantida em quarentena explícita no código (`QUARENTENA = {"T3_protocolo"}`) para
+que ninguém a reintroduza por achá-la promissora.
+
+## Resultado final da engenharia de variáveis
+
+Segunda rodada, nove grupos, cada um somado a base+G2. Sete não produziram nada.
+
+| Grupo | nvar | val PR | teste PR | teste p@5% | AUC | Δ vs G2 |
+|---|---|---|---|---|---|---|
+| base (chegada) | 20 | 0,2058 | 0,1738 | 0,2472 | 0,7471 | −0,0280 |
+| base + G2 (referência) | 22 | 0,2292 | 0,2018 | 0,2711 | 0,7758 | — |
+| **T1_experiencia** | 27 | 0,2687 | **0,2452** | **0,3113** | 0,7926 | **+0,0434** |
+| **BONUS_rate_movel** | 24 | 0,2408 | 0,2074 | 0,2760 | 0,7852 | **+0,0056** |
+| T2_idade_orgao | 23 | 0,2342 | 0,2022 | 0,2623 | 0,7794 | +0,0004 |
+| T3_geo (`mesma_regiao`) | 23 | 0,2292 | 0,2018 | 0,2711 | 0,7758 | 0,0000 |
+| T2_volume_movel | 23 | 0,2297 | 0,1979 | 0,2657 | 0,7758 | −0,0039 |
+| T2_tendencia | 23 | 0,2266 | 0,1969 | 0,2627 | 0,7756 | −0,0049 |
+| T3_interacoes | 25 | 0,2252 | 0,1953 | 0,2708 | 0,7673 | −0,0065 |
+| T3_municipio_p5 | 23 | 0,2250 | 0,1933 | 0,2697 | 0,7733 | −0,0085 |
+| ~~T3_protocolo~~ | 23 | 0,4988 | 0,4595 | 0,4827 | 0,8568 | **vazamento (H5)** |
+| **COMBINAÇÃO honesta** | **30** | **0,2784** | **0,2542** | **0,3069** | **0,8003** | **+0,0524** |
+
+**Contra a linha de base sem modelo, no teste maturado de 2026:**
+
+| | PR-AUC | precisão@5% |
+|---|---|---|
+| Consulta histórica por órgão | 0,1641 | 0,2479 |
+| **Modelo final (30 variáveis)** | **0,2542** | **0,3069** |
+| Ganho relativo | **+55%** | **+23,8%** |
+
+A conclusão inicial de que o aprendizado de máquina apenas empatava com uma
+tabela **não vale mais**. Com histórico do solicitante e taxa móvel por órgão, o
+modelo supera a consulta em 5,9 pontos percentuais de precisão@5%.
+
+Ganho por variável na combinação final:
+
+| Variável | % do ganho |
+|---|---|
+| `orgao_rate` | 38,14 |
+| **`orgao_rate_movel_90d`** | **19,95** |
+| `OrgaoDestinatario` | 11,03 |
+| **`n_pedidos_previos_neste_orgao`** | **6,67** |
+| `Municipio_sol` | 5,23 |
+| `prev_reenc_rate_solicitante` | 4,79 |
+| `prev_reenc_neste_orgao` | 3,82 |
+| `orgao_rate_movel_365d` | 2,06 |
+| `dias_desde_primeiro_pedido_do_orgao` | 1,48 |
+| `dias_desde_ultimo_pedido` | 1,39 |
+| `n_pedidos_previos` (agregado) | 1,29 |
+| `n_orgaos_distintos_previos` | 0,97 |
+
+Dois achados substantivos aqui. Primeiro, **a experiência é específica do
+órgão**: `n_pedidos_previos_neste_orgao` vale 6,67% contra 1,29% do agregado
+`n_pedidos_previos` — cinco vezes mais. Conhecer o INSS não ajuda a endereçar o
+MGI. Segundo, **a taxa móvel de 90 dias vale mais que qualquer variável de
+solicitante** (19,95%): a tabela estática ajustada em 2022–2024 estava
+desatualizada, como a queda da taxa-base de 8,03% para 5,23% sugeria.
+
+Curiosidade metodológica: `orgao_rate_tendencia` e `orgao_volume_movel`, isolados,
+foram **negativos**, mas os *níveis* móveis dos quais derivam são fortemente
+positivos. Diferença de duas estimativas ruidosas é mais ruído.
+
+## Idade do órgão — hipótese confirmada
+
+Com a datação corrigida (2012-05-15 a 2026-09-01; a versão anterior estava
+censurada em 2022 porque a CGU trocou o retrato de `20260914` para `20260915` no
+meio do trabalho e um prefixo fixo perdia os arquivos antigos em silêncio):
+
+| Idade do órgão no registro | n | Taxa de reenc. |
+|---|---|---|
+| < 1 ano | 6.182 | **9,66%** |
+| 1–2 anos | 9.298 | **9,81%** |
+| 2–4 anos | 22.471 | **9,85%** |
+| 4–8 anos | 31.397 | 6,72% |
+| 8+ anos | 324.958 | **5,94%** |
+
+Órgãos com menos de quatro anos encaminham a ~9,8%; os com mais de oito, a
+5,94% — razão de **1,65×**, com degrau nítido em torno de quatro anos. Órgão
+nascido de reorganização administrativa tem fronteira de competência obscura, e
+o cidadão erra mais. Como variável marginal rende pouco (+0,0004), porque
+`orgao_rate` já absorve o efeito, mas é explicação causal publicável.
