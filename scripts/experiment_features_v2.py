@@ -21,15 +21,26 @@ Grupos avaliados, cada um somado ao melhor conjunto estabelecido (base + G2):
   BONUS_rate_movel       orgao_rate_movel_90d / _365d -- NÃO foi pedido, mas sai
                          de graça como subproduto de T2_tendencia
 
-CAUSALIDADE. Toda janela móvel é candidata natural a vazamento. Aqui os
-agregados por órgão usam searchsorted com limite superior ESTRITAMENTE ANTERIOR
-à data corrente (side="left" sobre a própria data), de modo que nem a linha
-corrente nem qualquer linha do mesmo dia entram no cálculo. Os agregados por
-solicitante usam soma acumulada deslocada. Ver docs/CAMPOS_POST_HOC.md.
+CAUSALIDADE -- E UM DEFEITO CONHECIDO NESTE SCRIPT.
+
+Os agregados por ÓRGÃO usam searchsorted com limite superior ESTRITAMENTE
+ANTERIOR à data corrente (side="left"), então nem a linha corrente nem nenhuma
+do mesmo dia entram. Isso está correto.
+
+Os agregados por SOLICITANTE usam soma acumulada deslocada, o que impede ver a
+si mesmo e o futuro, mas NÃO impede ver irmãos do MESMO DIA -- `DataRegistro`
+não tem hora. Auditoria externa mediu 159.320 linhas recebendo histórico de
+pedido do mesmo solicitante no mesmo dia, 22.793 com rótulo positivo; e 53.434
+linhas consumindo desfecho de pedido com menos de MATURITY_DAYS, que em produção
+ainda não seria conhecido.
+
+Consequência: os ganhos de T1 relatados aqui estão OTIMISTAS e serão
+republicados após o Fix 1+2. Ver docs/CAMPOS_POST_HOC.md.
 
     uv run python scripts/experiment_features_v2.py
 """
 
+import sys
 import time
 from pathlib import Path
 
@@ -37,6 +48,9 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 from sklearn.metrics import average_precision_score, roc_auc_score
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts.train import precision_at_k  # noqa: E402
 
 ROOT = Path.home() / "lai-triagem"
 INTERIM = ROOT / "data" / "interim"
@@ -177,7 +191,7 @@ def build(df, births):
     df = df[df.Situacao.ne("Encaminhada por Outro Órgão")].copy()
     df = df.sort_values("_reg", kind="stable").reset_index(drop=True)
 
-    # ---------------- Tier 1: histórico do solicitante, estritamente causal ----
+    # ---------------- Tier 1: histórico do solicitante (ver defeito no topo) ---
     # Solicitante anonimizado ('0') não acumula histórico: não é uma pessoa.
     real = df.IdSolicitante.ne("0")
     sub = df.loc[real]
@@ -242,8 +256,9 @@ def encode(df, cats, maps=None):
 
 
 def prec_at(y, p, frac):
-    k = max(1, int(round(frac * len(y))))
-    return float(y[np.argsort(-p)[:k]].mean())
+    # Delega a implementacao canonica, ciente de empates, de scripts/train.py.
+    # A copia local usava argsort e desempatava pela ordem do arquivo.
+    return precision_at_k(y, p, frac)[0]
 
 
 def fit_eval(tr, va, te, mask, cats, nums):

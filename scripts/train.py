@@ -175,9 +175,23 @@ def build_features(df, births):
     df = df[df.Situacao.ne("Encaminhada por Outro Órgão")].copy()
     df = df.sort_values("_reg", kind="stable").reset_index(drop=True)
 
-    # --- histórico do solicitante, estritamente causal -----------------------
-    # Soma acumulada DESLOCADA: a linha corrente nunca vê a si mesma nem o
-    # futuro. Solicitante anonimizado ('0') não acumula: não é uma pessoa.
+    # --- histórico do solicitante ---------------------------------------------
+    # ATENÇÃO -- DEFEITO CONHECIDO, correção planejada (Fix 1+2).
+    #
+    # A soma acumulada é deslocada, então a linha corrente não vê a si mesma nem
+    # o futuro. MAS `DataRegistro` é somente data, sem hora, e `cumcount`/
+    # `cumsum` sobre o quadro ordenado por data INCLUEM os irmãos do MESMO DIA.
+    # Auditoria externa mediu: 159.320 linhas recebem histórico de um pedido do
+    # mesmo solicitante no mesmo dia, e 22.793 incorporam um rótulo positivo
+    # desse empate. Além disso, 53.434 linhas consomem desfecho de pedido
+    # registrado há menos de MATURITY_DAYS -- desfecho que em produção ainda não
+    # seria conhecido.
+    #
+    # As janelas por órgão (organ_rolling) NÃO têm esse defeito: usam
+    # searchsorted com side="left", que exclui o mesmo dia. A garantia valia
+    # para um lado e foi indevidamente generalizada para o outro.
+    #
+    # Solicitante anonimizado ('0') não acumula: não é uma pessoa.
     real = df.IdSolicitante.ne("0")
     sub = df.loc[real]
     g_sol = sub.groupby("IdSolicitante", sort=False)
@@ -245,9 +259,41 @@ def encode(df, cats, cat_maps=None):
     return out, maps
 
 
-def precision_at_k(y, p, frac):
-    k = max(1, int(round(frac * len(y))))
-    return float(y[np.argsort(-p)[:k]].mean()), k
+def precision_at_k(y, p, frac, return_ties=False):
+    """Precisão na fila dos k primeiros, com desempate EXPLÍCITO.
+
+    Defeito corrigido (apontado por auditoria externa): a versão anterior usava
+    `np.argsort(-p)[:k]`, que desempata pela ordem das linhas no arquivo. O
+    escore da linha de base é a taxa por órgão, CONSTANTE dentro de cada órgão,
+    logo há blocos enormes de empate exatamente no ponto de corte -- e o número
+    passava a depender da ordem de leitura do CSV, não do modelo.
+
+    Aqui devolvemos o VALOR ESPERADO sob desempate uniforme: todos os positivos
+    com escore estritamente acima do corte, mais a fração proporcional do bloco
+    empatado. É determinístico e bem definido, e não depende de ordenação.
+    """
+    n = len(y)
+    k = min(max(1, int(round(frac * n))), n)
+    order = np.argsort(-p, kind="stable")
+    ps, ys = np.asarray(p)[order], np.asarray(y)[order]
+
+    cut = ps[k - 1]
+    above = ps > cut
+    n_above = int(above.sum())
+    pos_above = float(ys[above].sum())
+
+    tied = ps == cut
+    n_tied = int(tied.sum())
+    pos_tied = float(ys[tied].sum())
+
+    need = k - n_above                      # quantos do bloco empatado entram
+    exp_pos = pos_above + (need * pos_tied / n_tied if n_tied else 0.0)
+    prec = exp_pos / k
+    if return_ties:
+        # n_tied >> need indica que o corte cai no meio de um bloco grande: o
+        # número é uma expectativa, não uma seleção determinada.
+        return prec, k, n_tied, need
+    return prec, k
 
 
 def evaluate(name, y, p):
@@ -258,9 +304,14 @@ def evaluate(name, y, p):
     print(f"     ROC-AUC {roc_auc_score(y, p):.4f}   PR-AUC {average_precision_score(y, p):.4f}")
     rows = []
     for frac in (0.01, 0.02, 0.05, 0.10, 0.20):
-        prec, k = precision_at_k(y, p, frac)
-        rows.append((f"top {frac*100:.0f}%", k, f"{prec*100:.2f}%", f"{prec/base:.2f}x"))
-    print(pd.DataFrame(rows, columns=["fila", "k", "precisao", "ganho"]).to_string(index=False))
+        prec, k, n_tied, need = precision_at_k(y, p, frac, return_ties=True)
+        # Expõe o tamanho do bloco empatado no corte: se n_tied for grande em
+        # relação a `need`, a precisão é uma expectativa, não uma seleção.
+        rows.append((f"top {frac*100:.0f}%", k, f"{prec*100:.2f}%", f"{prec/base:.2f}x",
+                     n_tied, need))
+    print(pd.DataFrame(rows, columns=["fila", "k", "precisao", "ganho",
+                                      "empatados_no_corte", "usados_do_empate"]
+                       ).to_string(index=False))
     return {"roc_auc": float(roc_auc_score(y, p)),
             "pr_auc": float(average_precision_score(y, p)),
             "precision_at": {f"{f:.2f}": precision_at_k(y, p, f)[0] for f in (0.01, 0.05, 0.10)}}

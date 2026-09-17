@@ -19,6 +19,7 @@ aleatória de 16 sorteios. Cada ajuste leva ~2 s, então o total fica em ~35 s.
     uv run python scripts/experiment_features_hpo.py
 """
 
+import sys
 import time
 from pathlib import Path
 
@@ -26,6 +27,9 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 from sklearn.metrics import average_precision_score, roc_auc_score
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts.train import precision_at_k  # noqa: E402
 
 ROOT = Path.home() / "lai-triagem"
 INTERIM = ROOT / "data" / "interim"
@@ -111,10 +115,14 @@ def build(df):
     ).astype("int8")
     df.loc[(df.idade < 10) | (df.idade > 110), "idade"] = np.nan
 
-    # --- G2: histórico do solicitante, estritamente causal ---
-    # Ordena por data e usa contagem/soma acumuladas DESLOCADAS, para que a
-    # linha corrente nunca veja a si mesma nem o futuro. Solicitante
-    # anonimizado ('0') não acumula histórico: não é uma pessoa.
+    # --- G2: histórico do solicitante ---
+    # ATENÇÃO -- DEFEITO CONHECIDO, correção planejada (Fix 1+2).
+    # A soma acumulada é deslocada, então a linha não vê a si mesma nem o
+    # futuro. MAS `DataRegistro` é somente data, sem hora, e cumcount/cumsum
+    # INCLUEM os irmãos do MESMO DIA, cujo desfecho não seria conhecido em
+    # produção. Auditoria externa mediu 159.320 linhas afetadas, 22.793 com
+    # rótulo positivo vindo do empate. Os números de G2 abaixo estão, portanto,
+    # otimistas. Solicitante anonimizado ('0') não acumula: não é uma pessoa.
     df = df.sort_values("_reg", kind="stable").reset_index(drop=True)
     real = df.IdSolicitante.ne("0")
     g = df[real].groupby("IdSolicitante", sort=False)
@@ -139,8 +147,8 @@ def encode(df, cats, maps=None):
 
 
 def prec_at(y, p, frac):
-    k = max(1, int(round(frac * len(y))))
-    return float(y[np.argsort(-p)[:k]].mean())
+    # Delega a implementacao canonica, ciente de empates, de scripts/train.py.
+    return precision_at_k(y, p, frac)[0]
 
 
 def fit_eval(tr, va, te, te_mask, cats, nums, params=None, rounds=600):

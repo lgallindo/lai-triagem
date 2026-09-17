@@ -155,9 +155,15 @@ mas não exigia aprendizado de máquina.
 `scripts/experiment_features_hpo.py` testou seis grupos de variáveis derivadas.
 Cinco não produziram nada. Um mudou a conclusão.
 
-**G2 — histórico do solicitante**, duas variáveis estritamente causais
-(contagem acumulada deslocada, ordenada por data, de modo que a linha corrente
-nunca vê a si mesma nem o futuro):
+**G2 — histórico do solicitante**, duas variáveis com acumulação deslocada e
+ordenada por data.
+
+> **Correção posterior:** auditoria externa mostrou que "estritamente causal",
+> como estava escrito aqui, é falso. A acumulação impede ver a si mesma e o
+> futuro, mas inclui pedidos do **mesmo dia** (159.320 linhas; 22.793 com
+> rótulo positivo) e consome desfechos com menos de 60 dias (53.434 linhas).
+> Os ganhos abaixo estão **otimistas**. Ver
+> [`AUDITORIA_EXTERNA.md`](AUDITORIA_EXTERNA.md).
 
 - `n_pedidos_previos` — quantos pedidos aquele `IdSolicitante` já fez antes
 - `prev_reenc_solicitante` — quantos deles foram reencaminhados

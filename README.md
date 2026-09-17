@@ -238,9 +238,19 @@ Dado pessoal; **não embarcadas**. Todas opcionais, padrão `-1`.
 | `n_orgaos_distintos_previos` | amplitude: quantos órgãos distintos já acionou | 0,98% |
 | `prev_reenc_solicitante` | contagem de reencaminhamentos anteriores | baixo |
 
-Todas calculadas no treino com soma acumulada **deslocada**, de modo que a linha
-corrente nunca vê a si mesma nem o futuro. Solicitante anonimizado
-(`IdSolicitante == '0'`, 16,9% das linhas) não acumula histórico.
+> **Defeito conhecido, correção pendente.** Estas sete variáveis são
+> calculadas com soma acumulada deslocada, o que impede a linha de ver a si
+> mesma e o futuro — mas **não** impede ver pedidos do **mesmo dia**, porque
+> `DataRegistro` não tem hora. Auditoria externa mediu **159.320 linhas**
+> recebendo histórico de um pedido do mesmo solicitante no mesmo dia, **22.793**
+> delas com rótulo positivo, e **53.434** consumindo desfecho com menos de 60
+> dias — que em produção ainda não seria conhecido. **Os ganhos atribuídos a
+> estas variáveis estão otimistas e serão republicados.** As tabelas por órgão
+> não têm esse defeito. Detalhes em
+> [`docs/AUDITORIA_EXTERNA.md`](docs/AUDITORIA_EXTERNA.md).
+
+Solicitante anonimizado (`IdSolicitante == '0'`, 16,9% das linhas) não acumula
+histórico.
 
 # Campos excluídos, e por quê
 
