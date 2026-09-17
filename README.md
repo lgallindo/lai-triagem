@@ -294,7 +294,7 @@ Também são removidas da modelagem as **459 linhas** com
 |---|---|---|
 | `probabilidade_reencaminhamento` | float 0–1 | Saída do LightGBM. **Não é calibrada** — serve para ordenar, não como probabilidade literal |
 | `alerta` | `"ALTO RISCO"` \| `"BAIXO RISCO"` | Comparação com `threshold` |
-| `threshold` | float | **0,155738** — quantil 90 dos escores de validação, ponto de operação da fila de 10%. Reajustado a cada retreinamento |
+| `threshold` | float | o valor em [`docs/METRICAS.md`](docs/METRICAS.md) — quantil 90 dos escores de validação, ponto de operação da fila de 10%. Reajustado a cada retreinamento |
 | `orgao_rate_movel_90d` | float | Taxa do órgão na janela móvel de 90 d, exposta para auditoria |
 | `historico_informado` | bool | `false` se o chamador omitiu o histórico do solicitante — o escore está degradado |
 | `orgao_conhecido` | bool | `false` se o órgão não aparece nos anos de treino; nesse caso o escore recai na taxa-base |
@@ -328,6 +328,7 @@ These are unavailable when a request arrives; see docs/VERIFICATION.md.
 
 | Caminho | Papel |
 |---|---|
+| [`docs/METRICAS.md`](docs/METRICAS.md) | **Gerado** por train.py; fonte única de todo número de desempenho |
 | [`docs/DECISAO_ESTADO_SOLICITANTE.md`](docs/DECISAO_ESTADO_SOLICITANTE.md) | Onde vive o histórico do solicitante e por quê — decisão de proteção de dados |
 | [`docs/CAMPOS_POST_HOC.md`](docs/CAMPOS_POST_HOC.md) | O que é campo *post hoc*, por que não serve para treinar, e o protocolo de identificação |
 | [`docs/TREINAMENTO.md`](docs/TREINAMENTO.md) | Procedimento de treinamento reproduzível e configuração do LightGBM |

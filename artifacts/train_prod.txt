@@ -1,6 +1,6 @@
 datando a primeira aparição de cada órgão (2012 em diante)...
   órgãos datados: 880   mais antigo 2012-05-15
-carregado e featurizado em 6.8s
+carregado e featurizado em 8.3s
 treino [2022, 2023, 2024] n=391,425  val 2025 n=150,142  teste 2026 n=113,151 (maturado 86,096)
 taxa de reenc.  treino 8.03%  val 6.77%  teste 5.23%
 
@@ -29,7 +29,7 @@ top 20% 17219   13.68% 2.38x                3066              2396
 ==============================================================================
 VARIANTE arrival   (14 categóricas + 17 numéricas)
 ==============================================================================
-  ajuste: 2.18s   melhor iteração=161   árvores=161
+  ajuste: 3.06s   melhor iteração=161   árvores=161
 
   -- VALIDAÇÃO 2025 --   n=150,142  positivos=10,161  taxa-base=6.77%
      ROC-AUC 0.7756   PR-AUC 0.2184
@@ -81,7 +81,7 @@ UF_sol                                  0.56
 ==============================================================================
 VARIANTE with_assunto   (16 categóricas + 17 numéricas)
 ==============================================================================
-  ajuste: 2.43s   melhor iteração=137   árvores=137
+  ajuste: 3.02s   melhor iteração=137   árvores=137
 
   -- VALIDAÇÃO 2025 --   n=150,142  positivos=10,161  taxa-base=6.77%
      ROC-AUC 0.7832   PR-AUC 0.2291
@@ -133,7 +133,7 @@ UF                                      0.32
 ==============================================================================
 VARIANTE LEAKY_with_prazo   (14 categóricas + 18 numéricas)
 ==============================================================================
-  ajuste: 1.66s   melhor iteração=108   árvores=108
+  ajuste: 1.95s   melhor iteração=108   árvores=108
 
   -- VALIDAÇÃO 2025 --   n=150,142  positivos=10,161  taxa-base=6.77%
      ROC-AUC 0.8536   PR-AUC 0.4422
@@ -258,7 +258,8 @@ decil
 7       4245    0.0974     0.0796
 8       9618    0.1302     0.1067
 9       7384    0.2475     0.2100
+gravado docs/METRICAS.md (1.5 KB)
 
-gravado preprocessor.json (397 KB)
+gravado preprocessor.json (398 KB)
 limiar da fila de 10%: 0.162928
-TEMPO TOTAL: 36.1s
+TEMPO TOTAL: 38.0s

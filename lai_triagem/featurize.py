@@ -106,21 +106,33 @@ class Preprocessor:
             "dias_desde_primeiro_pedido_do_orgao": idade_orgao,
             "uf_match": int((p.get("UF_sol") or "~") == (p.get("UF") or "!")),
         }
-        # Histórico do solicitante: só do chamador. Nunca lido de tabela interna.
+        # Histórico do solicitante: só do chamador, nunca de tabela interna.
+        #
+        # Fix 7 -- CONJUNTO ATÔMICO. Antes, enviar um único campo devolvia
+        # `historico_informado: true` com os outros seis em -1: combinação que
+        # nunca ocorre no treinamento (80 pedidos anteriores implicam razão
+        # real), logo uma linha fora da distribuição. Agora, histórico parcial é
+        # tratado como AUSENTE por inteiro, e o serviço sinaliza que ignorou.
+        presentes = [c for c in self.caller_features if p.get(c) is not None]
+        self._hist_parcial_ignorado = 0 < len(presentes) < len(self.caller_features)
+        completo = len(presentes) == len(self.caller_features)
         for c in self.caller_features:
-            v = p.get(c)
-            derived[c] = self.caller_default if v is None else float(v)
+            derived[c] = float(p[c]) if completo else self.caller_default
 
-        # Razão no par solicitante x órgão: sai de dois campos que o chamador já
-        # envia, logo não amplia o contrato. Indefinida sem pedido anterior
-        # naquele órgão, caso em que vale o mesmo sentinela de "sem histórico".
-        if "prev_reenc_rate_neste_orgao" in self.derived_from_caller:
-            n = derived.get("n_pedidos_previos_neste_orgao", self.caller_default)
-            r = derived.get("prev_reenc_neste_orgao", self.caller_default)
-            derived["prev_reenc_rate_neste_orgao"] = (
-                r / n if (n is not None and n > 0 and r is not None and r >= 0)
-                else self.caller_default
-            )
+        # As duas razões são DERIVADAS aqui, nunca aceitas do chamador, para não
+        # poderem ficar incoerentes com o numerador e o denominador. Usam o
+        # denominador MADURO, como no treinamento após o Fix 1+2.
+        for nome, num, den in (
+            ("prev_reenc_rate_solicitante", "prev_reenc_solicitante",
+             "prev_reenc_solicitante_den"),
+            ("prev_reenc_rate_neste_orgao", "prev_reenc_neste_orgao",
+             "prev_reenc_neste_orgao_den"),
+        ):
+            if nome not in self.derived_from_caller:
+                continue
+            r, d = derived.get(num, self.caller_default), derived.get(den, self.caller_default)
+            derived[nome] = (r / d if (d is not None and d > 0 and r is not None and r >= 0)
+                             else self.caller_default)
 
         row: dict[str, object] = {}
         for c in self.categorical:
@@ -136,9 +148,16 @@ class Preprocessor:
         return organ in self.organ_rate
 
     def history_supplied(self, payload: dict) -> bool:
-        """O chamador informou algum contador de histórico? Se não, o modelo
-        opera degradado — mensurável, mas silencioso se não for exposto."""
-        return any(payload.get(c) is not None for c in self.caller_features)
+        """O chamador informou o histórico COMPLETO? Fix 7: parcial conta como
+        ausente, porque uma linha meio preenchida fica fora da distribuição de
+        treinamento. Use `history_partial_ignored` para distinguir os casos."""
+        return all(payload.get(c) is not None for c in self.caller_features)
+
+    def history_partial_ignored(self, payload: dict) -> bool:
+        """Verdadeiro quando o chamador mandou histórico incompleto e ele foi
+        descartado por inteiro. Sinaliza erro de integração, não ausência."""
+        n = sum(payload.get(c) is not None for c in self.caller_features)
+        return 0 < n < len(self.caller_features)
 
 
     def calibrate(self, prob: float) -> float | None:

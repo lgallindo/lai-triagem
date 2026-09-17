@@ -71,15 +71,30 @@ CAT_BASE = ["Esfera", "UF", "Municipio", "OrgaoDestinatario", "FormaResposta",
             "OrigemSolicitacao", "TipoDemandante", "Genero", "Escolaridade", "Profissao",
             "TipoPessoaJuridica", "Pais", "UF_sol", "Municipio_sol"]
 NUM_BASE = ["reg_month", "reg_dow", "reg_day", "idade", "orgao_rate", "uf_match"]
-# Fornecidas pelo chamador em produção (dado pessoal, não embarcado).
+# Variáveis de histórico que entram no modelo (dado pessoal, não embarcado).
 NUM_SOLICITANTE = ["n_pedidos_previos", "prev_reenc_solicitante",
                    "prev_reenc_rate_solicitante", "n_pedidos_previos_neste_orgao",
                    "prev_reenc_neste_orgao", "n_orgaos_distintos_previos",
                    "dias_desde_ultimo_pedido"]
-# Derivadas ARITMETICAMENTE das anteriores, dentro do featurize. O chamador NÃO
-# precisa enviá-las: a razão sai de dois campos que ele já manda. Nenhum dado
-# novo, nenhuma mudança de contrato, nada embarcado.
+# Derivadas dentro do featurize a partir do que o chamador envia.
 NUM_DERIVED_CALLER = ["prev_reenc_rate_neste_orgao"]
+
+# O QUE O CHAMADOR ENVIA -- diferente da lista de variáveis do modelo.
+#
+# Fix 7: depois do Fix 1+2 as razões passaram a usar DENOMINADOR MADURO (quantos
+# pedidos anteriores já tinham MATURITY_DAYS na data do pedido), não a contagem
+# total. O chamador não consegue derivar isso de `n_pedidos_previos`, então
+# precisa enviar os denominadores. Sem eles as razões ficavam incoerentes com o
+# treinamento -- foi o que produziu a inversão em que o veterano pontuava mais
+# que o estreante no exemplo mínimo.
+CALLER_INPUTS = [
+    # contagens: não dependem de desfecho, não exigem maturação
+    "n_pedidos_previos", "n_pedidos_previos_neste_orgao",
+    "n_orgaos_distintos_previos", "dias_desde_ultimo_pedido",
+    # desfechos maduros e seus denominadores
+    "prev_reenc_solicitante", "prev_reenc_solicitante_den",
+    "prev_reenc_neste_orgao", "prev_reenc_neste_orgao_den",
+]
 # Embarcadas no artefato (conduta de entidade pública).
 NUM_ORGAO = ["orgao_rate_movel_90d", "orgao_rate_movel_365d",
              "dias_desde_primeiro_pedido_do_orgao"]
@@ -492,6 +507,83 @@ def equity_audit(te, p):
         print(cmp.sort_values("populacao_%", ascending=False).head(8).to_string())
 
 
+def write_metrics_doc(meta, booster, base_metrics):
+    """Gera docs/METRICAS.md a partir do artefato.
+
+    Fix 6: a causa dos números obsoletos era eu repetir métricas em prosa em
+    quatro documentos. Agora existe UMA fonte gerada, e os outros documentos
+    referenciam em vez de repetir. `scripts/check_docs_numbers.py` falha se
+    algum texto voltar a contradizer o artefato.
+    """
+    doc = ROOT / "docs" / "METRICAS.md"
+    m = meta["metrics"]["arrival"]
+    bm = base_metrics["test_matured"]
+    tm = m["test_matured"]
+
+    def pct(x):
+        return f"{100*x:.2f}%"
+
+    linhas = [
+        "# Métricas — GERADO AUTOMATICAMENTE, NÃO EDITAR À MÃO",
+        "",
+        f"Gerado por `scripts/train.py` em {meta['created_utc']}.",
+        "Qualquer número de desempenho citado em outro documento deve vir daqui.",
+        "",
+        "## Artefato",
+        "",
+        "| Item | Valor |",
+        "|---|---|",
+        f"| Variáveis | **{len(meta['feature_order'])}** |",
+        f"| Árvores | **{booster.num_trees()}** |",
+        f"| Limiar (fila de {100*meta['queue_fraction']:.0f}%) | **{meta['threshold']}** |",
+        f"| Retrato dos dados | `{meta['data_snapshot']}` |",
+        f"| Anos de treino | {meta['train_years']} |",
+        f"| Maturação | {meta['maturity_days']} dias |",
+        f"| Campos excluídos por vazamento | {len(meta['excluded_leakage_features'])} |",
+        f"| Campos enviados pelo chamador | {len(meta['caller_supplied_features'])} (atômico) |",
+        "",
+        f"## Teste {meta['test_year']} maturado — modelo contra linha de base",
+        "",
+        "| Escore | ROC-AUC | PR-AUC | prec@1% | prec@5% | prec@10% |",
+        "|---|---|---|---|---|---|",
+        f"| Consulta por órgão (sem modelo) | {bm['roc_auc']:.4f} | {bm['pr_auc']:.4f} | "
+        f"{pct(bm['precision_at']['0.01'])} | {pct(bm['precision_at']['0.05'])} | "
+        f"{pct(bm['precision_at']['0.10'])} |",
+        f"| LightGBM | {tm['roc_auc']:.4f} | {tm['pr_auc']:.4f} | "
+        f"{pct(tm['precision_at']['0.01'])} | {pct(tm['precision_at']['0.05'])} | "
+        f"{pct(tm['precision_at']['0.10'])} |",
+        f"| Diferença relativa | — | {100*(tm['pr_auc']/bm['pr_auc']-1):+.1f}% | "
+        f"{100*(tm['precision_at']['0.01']/bm['precision_at']['0.01']-1):+.1f}% | "
+        f"**{100*(tm['precision_at']['0.05']/bm['precision_at']['0.05']-1):+.1f}%** | "
+        f"{100*(tm['precision_at']['0.10']/bm['precision_at']['0.10']-1):+.1f}% |",
+        "",
+        "## Custo dos vazamentos (variantes diagnósticas, nunca implantadas)",
+        "",
+        "| Variante | PR-AUC teste maturado | vs honesta |",
+        "|---|---|---|",
+    ]
+    for nome in ("with_assunto", "LEAKY_with_prazo"):
+        v = meta["metrics"].get(nome, {}).get("test_matured")
+        if v:
+            linhas.append(f"| `{nome}` | {v['pr_auc']:.4f} | "
+                          f"{100*(v['pr_auc']-tm['pr_auc']):+.2f} pp |")
+    linhas += [
+        "",
+        "## Ressalvas que não se leem nos números",
+        "",
+        "- A precisão@k é o **valor esperado** sob desempate uniforme. A linha de",
+        "  base tem blocos grandes de empate, porque a taxa por órgão é constante",
+        "  dentro do órgão.",
+        f"- As variáveis de desfecho usam defasagem de **{meta['maturity_days']} dias**;",
+        "  sem ela consumiriam resultados que em produção não seriam conhecidos.",
+        "- As variáveis demográficas vêm de um **retrato atual** do cadastro, não do",
+        "  perfil na abertura do pedido (H6). Ver `VERIFICATION.md`.",
+        "",
+    ]
+    doc.write_text("\n".join(linhas), encoding="utf-8")
+    print(f"gravado docs/METRICAS.md ({doc.stat().st_size/1024:.1f} KB)")
+
+
 def main():
     t0 = time.perf_counter()
     print("datando a primeira aparição de cada órgão (2012 em diante)...")
@@ -587,12 +679,14 @@ def main():
         "threshold": round(threshold, 6),
         "queue_fraction": QUEUE_FRAC,
         # --- dado pessoal: esperado do chamador, nunca embarcado
-        "caller_supplied_features": NUM_SOLICITANTE,
+        "caller_supplied_features": CALLER_INPUTS,
         "caller_supplied_default": -1,
+        "caller_supplied_atomic": True,   # Fix 7: conjunto atômico
         "caller_supplied_rationale": "docs/DECISAO_ESTADO_SOLICITANTE.md",
-        # Derivadas aritmeticamente das de cima, dentro do featurize. O chamador
-        # não as envia.
-        "derived_from_caller": NUM_DERIVED_CALLER,
+        # Derivadas dentro do featurize a partir de CALLER_INPUTS.
+        "derived_from_caller": ["prev_reenc_rate_solicitante",
+                                "prev_reenc_rate_neste_orgao"],
+        "maturity_days_for_caller_denominators": MATURITY_DAYS,
         "calibration": calib,
         "excluded_leakage_features": [
             "Situacao", "FoiProrrogado", "DataResposta", "Decisao", "EspecificacaoDecisao",
@@ -604,6 +698,7 @@ def main():
                     "LEAKY_with_prazo": m_prazo, "baseline_orgao_rate": base_metrics},
     }
     (ART / "preprocessor.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+    write_metrics_doc(meta, b_prod, base_metrics)
     print(f"\ngravado preprocessor.json ({(ART / 'preprocessor.json').stat().st_size/1024:.0f} KB)")
     print(f"limiar da fila de {QUEUE_FRAC*100:.0f}%: {threshold:.6f}")
     print(f"TEMPO TOTAL: {time.perf_counter() - t0:.1f}s")

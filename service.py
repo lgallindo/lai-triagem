@@ -61,8 +61,10 @@ class PedidoLAI(BaseModel):
         None, description="Quantos pedidos este solicitante já fez antes deste")
     prev_reenc_solicitante: float | None = Field(
         None, description="Quantos dos pedidos anteriores foram reencaminhados")
-    prev_reenc_rate_solicitante: float | None = Field(
-        None, description="Razão entre os dois anteriores")
+    prev_reenc_solicitante_den: float | None = Field(
+        None, description="Dos pedidos anteriores, quantos já tinham 60 dias")
+    prev_reenc_neste_orgao_den: float | None = Field(
+        None, description="Idem, restrito a este órgão")
     n_pedidos_previos_neste_orgao: float | None = Field(
         None, description="Pedidos anteriores deste solicitante A ESTE órgão")
     prev_reenc_neste_orgao: float | None = Field(
@@ -107,13 +109,16 @@ class LaiTriagem:
             # Transparência sobre operação degradada: sem histórico do
             # solicitante o modelo perde precisão de forma mensurável.
             "historico_informado": self.prep.history_supplied(payload),
+            # Fix 7: historico parcial e descartado por inteiro; isto
+            # distingue erro de integracao de ausencia deliberada.
+            "historico_parcial_ignorado": self.prep.history_partial_ignored(payload),
         }
 
     @bentoml.api
     def score_baseline(self, pedido: PedidoLAI) -> dict:
         """A consulta por órgão, sem modelo, mantida para comparação permanente.
-        No teste maturado de 2026 obteve precisão@5% de 24,79% contra 30,99%
-        do modelo."""
+        Números atuais em docs/METRICAS.md -- após corrigir o
+        vazamento, a base NÃO fica atrás do modelo em precisão@5%."""
         payload = pedido.model_dump()
         rate = float(self.prep.organ_rate.get(payload["OrgaoDestinatario"],
                                               self.prep.base_rate))
