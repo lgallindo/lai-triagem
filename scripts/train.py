@@ -111,11 +111,23 @@ CAT_H6 = ["Genero", "Escolaridade", "Profissao", "TipoDemandante",
           "TipoPessoaJuridica", "Pais", "UF_sol", "Municipio_sol"]
 NUM_H6 = ["uf_match"]
 
-# CONJUNTO DE PRODUÇÃO FINAL -- sem os afetados por H6.
-# Custo medido: nulo (PR-AUC do teste maturado 0,1836 com contra 0,1853 sem).
-# Com custo nulo e defeito metodológico real, remover é a escolha correta.
-CAT_PROD = [c for c in CAT_BASE if c not in CAT_H6]
-NUM_PROD_FINAL = [c for c in NUM_PROD if c not in NUM_H6]
+# CONJUNTO DE PRODUÇÃO -- COM as demográficas, honrando o escopo do TAP.
+#
+# O Termo de Abertura as inclui explicitamente (§4.1), nomeia escolaridade e
+# profissão na justificativa ao cidadão (§4) e constrói o risco central sobre
+# elas (§6.1). Removê-las seria desvio de escopo, e a decisão pertence aos
+# autores e ao aprovador, não à modelagem.
+#
+# A mitigação por recência que se cogitou NÃO se sustenta empiricamente
+# (scripts/experiment_h6_mitigacao.py): o ganho das demográficas é MAIOR no
+# treino de 2022 (+0,0121 de PR-AUC), onde o retrato está ~4,7 anos defasado,
+# do que no de 2024 (+0,0052, ~2,7 anos). Sem tendência, logo sem contaminação
+# mensurável -- e treinar só em anos recentes custaria desempenho.
+#
+# H6 segue sendo fato sobre os dados, documentado como limitação em
+# docs/VERIFICATION.md, sem efeito detectável no modelo.
+CAT_PROD = CAT_BASE
+NUM_PROD_FINAL = NUM_PROD
 
 NUM_LEAKY = ["prazo_dias"]
 CAT_ASSUNTO = ["AssuntoPedido", "SubAssuntoPedido"]
@@ -648,10 +660,12 @@ def main():
         "with_assunto", CAT_BASE + CAT_ASSUNTO, NUM_PROD, tr, va, te, mask)
     _, _, m_prazo, _, _ = run_variant(
         "LEAKY_with_prazo", CAT_BASE, NUM_PROD + NUM_LEAKY, tr, va, te, mask)
-    # Espelho invertido: agora a PRODUÇÃO é sem demografia, e a diagnóstica
-    # mede o que se ganharia mantendo os campos medidos no retrato (H6).
+    # Contrafactual de H6: quanto se perderia removendo o que é medido no
+    # retrato do cadastro e não na abertura do pedido.
     _, _, m_semdem, _, _ = run_variant(
-        "COM_demografia_H6", CAT_BASE, NUM_PROD, tr, va, te, mask)
+        "SEM_demografia_H6",
+        [c for c in CAT_BASE if c not in CAT_H6],
+        [c for c in NUM_PROD if c not in NUM_H6], tr, va, te, mask)
 
     print(f"\n{'=' * 78}\nCUSTO DOS VAZAMENTOS (variantes diagnósticas)\n{'=' * 78}")
     for label, mm in (("AssuntoPedido", m_assunto), ("prazo_dias", m_prazo)):
@@ -661,15 +675,15 @@ def main():
                   f"{c['pr_auc']:.4f}   {100*(c['pr_auc']-a['pr_auc']):+.2f} pp")
     print("  Nenhum dos dois é realizável em produção; ver docs/VERIFICATION.md.")
 
-    print(f"\n{'=' * 78}\nH6 -- O QUE SE GANHARIA MANTENDO AS DEMOGRÁFICAS\n{'=' * 78}")
+    print(f"\n{'=' * 78}\nH6 -- CONTRAFACTUAL: O QUE SE PERDERIA REMOVENDO AS DEMOGRÁFICAS\n{'=' * 78}")
     for split in ("val", "test_matured"):
         a, c = m_prod[split], m_semdem[split]
-        print(f"  {split:<13} PR-AUC produção (sem) {a['pr_auc']:.4f} vs com "
+        print(f"  {split:<13} PR-AUC produção (com) {a['pr_auc']:.4f} vs sem "
               f"{c['pr_auc']:.4f}   {100*(c['pr_auc']-a['pr_auc']):+.2f} pp")
         print(f"  {'':<13} prec@5% com {100*a['precision_at']['0.05']:.2f}% vs "
               f"sem {100*c['precision_at']['0.05']:.2f}%")
-    print("  Ganho nulo ou negativo: a remoção não custa desempenho e corrige o")
-    print("  descasamento de tempo de medição. Produção fica sem demografia.")
+    print("  H6 nao tem efeito mensuravel no desempenho; ver")
+    print("  scripts/experiment_h6_mitigacao.py. Producao mantem o escopo do TAP.")
 
     print(f"\n{'=' * 78}\nMODELO vs LINHA DE BASE (teste maturado)\n{'=' * 78}")
     bm, pm = base_metrics["test_matured"], m_prod["test_matured"]
@@ -732,7 +746,7 @@ def main():
             "protocolo_seq",
         ],
         "metrics": {"arrival": m_prod, "with_assunto": m_assunto,
-                    "LEAKY_with_prazo": m_prazo, "COM_demografia_H6": m_semdem,
+                    "LEAKY_with_prazo": m_prazo, "SEM_demografia_H6": m_semdem,
                     "baseline_orgao_rate": base_metrics},
         "h6_affected_features": CAT_H6 + NUM_H6,
     }
