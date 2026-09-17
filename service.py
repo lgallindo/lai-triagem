@@ -1,15 +1,15 @@
-"""BentoML service for LAI reencaminhamento-risk triage.
+"""Serviço BentoML de triagem de risco de reencaminhamento de pedidos LAI.
 
     cd ~/lai-triagem
-    .venv/bin/python scripts/register_bento.py     # model.txt -> BentoML store
-    .venv/bin/bentoml serve service.py:LaiTriagem
+    uv run python scripts/register_bento.py     # model.txt -> repositório BentoML
+    uv run bentoml serve service.py:LaiTriagem
 
-The artifact is a LightGBM native text model plus a JSON sidecar, so nothing
-here depends on pickle compatibility.
+O artefato é um modelo em texto nativo do LightGBM mais um acompanhante JSON,
+portanto nada aqui depende de compatibilidade de `pickle`.
 
-Read docs/VERIFICATION.md before trusting the score: the honest arrival-time
-model barely outperforms a one-line organ-rate lookup, which is also exposed
-here as /score_baseline for comparison.
+Leia docs/VERIFICATION.md antes de confiar no escore: o modelo honesto de
+chegada apenas empata com uma consulta histórica por órgão de uma única linha,
+que também é exposta aqui em /score_baseline para comparação.
 """
 
 from __future__ import annotations
@@ -24,13 +24,15 @@ from lai_triagem.featurize import Preprocessor, risk_label
 
 ART = Path(__file__).parent / "artifacts"
 MODEL_TAG = "lai_triagem_arrival:latest"
-THRESHOLD = 0.1691  # top-10% queue operating point
+
+# Ponto de operação da fila de 10%, não probabilidade calibrada.
+THRESHOLD = 0.1691
 
 
 class PedidoLAI(BaseModel):
-    """Arrival-time fields only. Post-hoc fields are rejected by the guard."""
-    OrgaoDestinatario: str = Field(..., description="Organ the citizen addressed")
-    DataRegistro: str = Field(..., description="DD/MM/YYYY")
+    """Somente campos de chegada. Campos posteriores são rejeitados pela barreira."""
+    OrgaoDestinatario: str = Field(..., description="Órgão a que o cidadão endereçou")
+    DataRegistro: str = Field(..., description="DD/MM/AAAA")
     Esfera: str | None = None
     UF: str | None = None
     Municipio: str | None = None
@@ -50,14 +52,16 @@ class PedidoLAI(BaseModel):
 @bentoml.service(name="lai_triagem", traffic={"timeout": 20},
                  resources={"cpu": "2"})
 class LaiTriagem:
-    bento_model = bentoml.models.get(MODEL_TAG)
+    bento_model = bentoml.models.BentoModel(MODEL_TAG)
 
     def __init__(self) -> None:
         self.booster: lgb.Booster = bentoml.lightgbm.load_model(self.bento_model)
+        # O pré-processador vem embarcado no próprio modelo registrado.
         self.prep = Preprocessor(self.bento_model.custom_objects["preprocessor"])
 
     @bentoml.api
     def score(self, pedido: PedidoLAI) -> dict:
+        """Escore do modelo treinado, com a taxa do órgão exposta para auditoria."""
         payload = pedido.model_dump()
         X = self.prep.transform(payload)
         prob = float(self.booster.predict(X)[0])
@@ -72,8 +76,8 @@ class LaiTriagem:
 
     @bentoml.api
     def score_baseline(self, pedido: PedidoLAI) -> dict:
-        """The organ-rate lookup, for comparison. On matured 2026 test data this
-        scored precision@5% of 24.79% against the model's 24.44%."""
+        """A consulta por órgão, para comparação. No teste maturado de 2026 obteve
+        precisão@5% de 24,79% contra 24,44% do modelo."""
         payload = pedido.model_dump()
         rate = float(self.prep.organ_rate.get(payload["OrgaoDestinatario"],
                                               self.prep.base_rate))
@@ -86,6 +90,7 @@ class LaiTriagem:
 
     @bentoml.api
     def health(self) -> dict:
+        """Procedência do artefato, incluindo o que foi deliberadamente excluído."""
         return {
             "model_tag": str(self.bento_model.tag),
             "n_trees": self.booster.num_trees(),

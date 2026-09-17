@@ -1,0 +1,35 @@
+[project]
+name = "lai-triagem"
+version = "0.1.0"
+description = "Triagem de risco de reencaminhamento de pedidos LAI na plataforma Fala.BR"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [{ name = "Lucas Gallindo Martins Soares", email = "lgms@cesar.org.br" }]
+keywords = ["lai", "fala.br", "cgu", "transparencia", "triagem", "lightgbm", "bentoml"]
+
+# Versões fixadas nas que foram efetivamente usadas no treinamento registrado
+# em docs/TREINAMENTO.md. Trocar qualquer uma delas invalida a reprodução exata.
+dependencies = [
+    "lightgbm==4.7.0",
+    "pandas==3.0.5",
+    "numpy==2.5.3",
+    "scikit-learn==1.9.1",
+    "pyarrow==25.0.1",
+]
+
+[project.optional-dependencies]
+# Só necessário para servir o modelo; o treinamento e o exemplo mínimo não usam.
+serve = [
+    "bentoml==1.4.39",
+    "pydantic==2.13.5",
+]
+
+[project.urls]
+Repository = "https://github.com/lgallindo/lai-triagem"
+"Fonte dos dados" = "https://dadosabertos-download.cgu.gov.br/FalaBR/Arquivos_FalaBR/"
+
+[tool.uv]
+# O ambiente é gerido por uv. Não editar à mão nem usar pip diretamente.
+package = false

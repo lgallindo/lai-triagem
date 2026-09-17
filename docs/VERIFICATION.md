@@ -1,140 +1,151 @@
-# Leakage and feasibility audit — LAI reencaminhamento risk
+# Auditoria de vazamento e viabilidade — risco de reencaminhamento LAI
 
-Every claim here is reproducible from `scripts/` against the CGU Fala.BR open
-data snapshot **20260914**. Data source:
+Toda afirmação aqui é reproduzível a partir de `scripts/` contra o retrato
+**20260914** dos dados abertos do Fala.BR. Fonte:
 <https://dadosabertos-download.cgu.gov.br/FalaBR/Arquivos_FalaBR/>
 
-Cohort: `Pedidos_csv_{2022..2026}`, **655,177 rows**, base reencaminhamento rate
-**7.32%**. Rows with `Situacao == "Encaminhada por Outro Órgão"` (459) are
-dropped from modelling: they are in transit, so their `OrgaoDestinatario` is the
-receiver rather than the addressee.
+Coorte: `Pedidos_csv_{2022..2026}`, **655.177 linhas**, taxa-base de
+reencaminhamento **7,32%**. As 459 linhas com
+`Situacao == "Encaminhada por Outro Órgão"` são descartadas da modelagem: estão
+em trânsito, logo seu `OrgaoDestinatario` é o receptor, não o endereçado.
 
-## Summary of findings
+## Resumo dos achados
 
-| ID | Hypothesis | Verdict | Script |
+| ID | Hipótese | Veredito | Script |
 |----|-----------|---------|--------|
-| H1 | `AssuntoPedido` is assigned during triage, not at intake | **CONFIRMED — excluded** | `verify_leakage_v2.py` |
-| H2 | `OrgaoDestinatario` is overwritten on forwarding | **REFUTED — retained** | `verify_h2_final.py`, `verify_h2_baserate.py` |
-| H3 | `prazo_dias` is an arrival-time feature | **REFUTED — it is leaky, excluded** | `verify_h3_prazo.py` |
-| H4 | Requester demographics are usable | **LARGELY UNAVAILABLE** | `verify_h3_prazo.py` |
+| H1 | `AssuntoPedido` é atribuído durante a triagem, não na chegada | **CONFIRMADA — excluído** | `verify_leakage_v2.py` |
+| H2 | `OrgaoDestinatario` é sobrescrito no reencaminhamento | **REFUTADA — mantido** | `verify_h2_final.py`, `verify_h2_baserate.py` |
+| H3 | `prazo_dias` é variável de chegada | **REFUTADA — é vazamento, excluído** | `verify_h3_prazo.py` |
+| H4 | Variáveis demográficas do solicitante são utilizáveis | **MAJORITARIAMENTE INDISPONÍVEIS** | `verify_h3_prazo.py` |
 
-## H1 — `AssuntoPedido` is a triage output
+## H1 — `AssuntoPedido` é saída da triagem
 
-Measured on the 2026 file, whose recent rows are genuinely untriaged (snapshot
-date equals the newest `DataRegistro`). The 2024 file shows only 0.098% missing
-and hides the effect entirely, because every 2024 row has been triaged for ~2 years.
+Medido no arquivo de 2026, cujas linhas recentes estão genuinamente sem triagem
+(a data do retrato coincide com o `DataRegistro` mais novo). O arquivo de 2024
+mostra apenas 0,098% de ausência e esconde o efeito por completo, porque toda
+linha de 2024 já foi triada há cerca de dois anos.
 
-| Window before snapshot | Rows | `AssuntoPedido` missing |
+| Janela antes do retrato | Linhas | `AssuntoPedido` ausente |
 |---|---|---|
-| last 3 d | 902 | **79.60%** |
-| last 7 d | 3,189 | 57.98% |
-| last 14 d | 6,018 | 49.47% |
-| last 30 d | 13,811 | 32.46% |
-| last 90 d | 41,299 | 12.41% |
-| last 365 d | 113,538 | 4.64% |
+| últimos 3 d | 902 | **79,60%** |
+| últimos 7 d | 3.189 | 57,98% |
+| últimos 14 d | 6.018 | 49,47% |
+| últimos 30 d | 13.811 | 32,46% |
+| últimos 90 d | 41.299 | 12,41% |
+| últimos 365 d | 113.538 | 4,64% |
 
-By status: `Cadastrada` **59.5%** missing vs `Concluída` **0.000%**.
-By response: unanswered **58.2%** vs answered **0.000%**.
+Por situação: `Cadastrada` **59,5%** ausente contra `Concluída` **0,000%**.
+Por resposta: não respondidos **58,2%** contra respondidos **0,000%**.
 
-A monotone decay to zero as requests age is the signature of a backfilled field.
-**Consequence:** a model trained on closed historical requests sees ~100%
-coverage and would meet ~60% NULLs in production — train/serve skew.
+Decaimento monótono até zero conforme o pedido envelhece é a assinatura de um
+campo preenchido retroativamente.
 
-## H2 — `OrgaoDestinatario` is the addressed organ
+**Consequência:** um modelo treinado em pedidos históricos encerrados vê ~100%
+de cobertura e encontraria ~60% de nulos em produção — distorção entre treino e
+serviço (*train/serve skew*).
 
-Three independent tests:
+## H2 — `OrgaoDestinatario` é o órgão endereçado
 
-1. **No duplicate records.** 655,177 rows carry 655,177 distinct `IdPedido`
-   *and* 655,177 distinct `ProtocoloPedido`. Forwarding never creates a second row.
-2. **`Recursos` join.** `Pedidos.OrgaoDestinatario == Recursos.OrgaoPedido` at
-   **100.000%** for both reencaminhado and non-reencaminhado rows (2024: n=10,089;
-   2025: n=11,919). This proves internal consistency, *not* direction — both
-   files come from the same snapshot.
-3. **Directional test (decisive).** Under an overwrite, organs that shed
-   misaddressed requests would show *low* rates and absorbers *high* rates.
-   Observed is the opposite:
+Três testes independentes:
 
-| Organ | Pedidos | Reenc. rate |
+1. **Não há registros duplicados.** 655.177 linhas carregam 655.177 `IdPedido`
+   distintos **e** 655.177 `ProtocoloPedido` distintos. O reencaminhamento nunca
+   cria uma segunda linha.
+2. **Junção com `Recursos`.** `Pedidos.OrgaoDestinatario == Recursos.OrgaoPedido`
+   em **100,000%** dos casos, tanto reencaminhados quanto não (2024: n=10.089;
+   2025: n=11.919). Isso prova consistência interna, **não** direção — os dois
+   arquivos vêm do mesmo retrato.
+3. **Teste direcional (decisivo).** Sob sobrescrita, órgãos que *expelem*
+   pedidos mal endereçados mostrariam taxas *baixas*, e os absorvedores, taxas
+   *altas*. O observado é o oposto:
+
+| Órgão | Pedidos | Taxa de reenc. |
 |---|---|---|
-| SGPR – Secretaria-Geral da Presidência | 1,645 | **50.58%** |
-| GSI-PR – Gabinete de Segurança Institucional | 1,652 | 44.25% |
-| CC-PR – Casa Civil | 6,086 | 42.56% |
-| MGI – Ministério da Gestão | 11,940 | 22.79% |
-| *90 federal universities (mean)* | — | **1.09%** |
+| SGPR – Secretaria-Geral da Presidência | 1.645 | **50,58%** |
+| GSI-PR – Gabinete de Segurança Institucional | 1.652 | 44,25% |
+| CC-PR – Casa Civil | 6.086 | 42,56% |
+| MGI – Ministério da Gestão | 11.940 | 22,79% |
+| *90 universidades federais (média)* | — | **1,09%** |
 
-Central/Presidency mean **36.69%** vs narrow-scope mean **1.09%** — a **33.7×**
-spread. Casa Civil cannot plausibly be the leading *destination* of forwarded
-requests; it is where citizens send what they cannot place. This matches the
-project charter's own premise.
+Média dos órgãos centrais/Presidência **36,69%** contra **1,09%** dos órgãos de
+competência estreita — diferença de **33,7×**. A Casa Civil não pode
+plausivelmente ser o principal *destino* de pedidos reencaminhados; ela é para
+onde o cidadão manda o que não consegue situar. Isso coincide com a premissa do
+próprio Termo de Abertura.
 
-Rejected test, recorded for completeness: the NUP protocol prefix
-(`ProtocoloPedido[:5]`) is **not** an organ identifier — weighted purity 0.58.
+Teste rejeitado, registrado por completude: o prefixo NUP do protocolo
+(`ProtocoloPedido[:5]`) **não** identifica órgão — pureza ponderada 0,58.
 
-## H3 — `prazo_dias` is leaky (the important one)
+## H3 — `prazo_dias` é vazamento (o achado importante)
 
-`prazo_dias = PrazoAtendimento − DataRegistro` was the trained model's dominant
-feature at **40.5% of gain**. It is post-hoc:
+`prazo_dias = PrazoAtendimento − DataRegistro` era a variável dominante do
+modelo, com **40,5% do ganho**. É posterior à triagem:
 
-| `FoiProrrogado` | n | mean | median | p05 | p95 |
+| `FoiProrrogado` | n | média | mediana | p05 | p95 |
 |---|---|---|---|---|---|
-| Não | 518,948 | 21.59 | **21.0** | 20.0 | 25.0 |
-| Sim | 136,228 | 31.29 | **31.0** | 21.0 | 39.0 |
+| Não | 518.948 | 21,59 | **21,0** | 20,0 | 25,0 |
+| Sim | 136.228 | 31,29 | **31,0** | 21,0 | 39,0 |
 
-The **+10 day** median difference is exactly the single extension granted by
-[Lei 12.527/2011](https://www.planalto.gov.br/ccivil_03/_ato2011-2014/2011/lei/l12527.htm)
-art. 11 §2. `PrazoAtendimento` is rewritten when the extension is granted —
-after intake. So `prazo_dias` re-imported `FoiProrrogado`, which was already on
-the exclusion list, through the back door.
+A diferença de **+10 dias** na mediana é exatamente a prorrogação única
+concedida pelo art. 11 §2 da
+[Lei 12.527/2011](https://www.planalto.gov.br/ccivil_03/_ato2011-2014/2011/lei/l12527.htm).
+`PrazoAtendimento` é reescrito quando a prorrogação é concedida — depois da
+chegada. Logo `prazo_dias` reimportava `FoiProrrogado`, que já estava na lista
+de exclusão, pela porta dos fundos.
 
-Cost of the leak, measured by training a diagnostic variant that keeps it:
+Custo do vazamento, medido treinando uma variante diagnóstica que o mantém:
 
-| Split | PR-AUC honest | PR-AUC leaky | Inflation |
+| Partição | PR-AUC honesta | PR-AUC vazada | Inflação |
 |---|---|---|---|
-| validation 2025 | 0.2053 | 0.4318 | **+22.65 pp** |
-| test 2026 | 0.1602 | 0.3772 | **+21.70 pp** |
-| test 2026 matured | 0.1723 | 0.3965 | **+22.42 pp** |
+| validação 2025 | 0,2053 | 0,4318 | **+22,65 pp** |
+| teste 2026 | 0,1602 | 0,3772 | **+21,70 pp** |
+| teste 2026 maturado | 0,1723 | 0,3965 | **+22,42 pp** |
 
-Precision@5% on matured test: **24.44% honest vs 43.25% leaky.** The leak nearly
-doubles apparent performance.
+Precisão@5% no teste maturado: **24,44% honesta contra 43,25% vazada.** O
+vazamento quase dobra o desempenho aparente.
 
-## H4 — demographics are mostly absent
+## H4 — variáveis demográficas quase ausentes
 
-| Field | Missing | Distinct |
+| Campo | Ausente | Distintos |
 |---|---|---|
-| `Escolaridade` | **76.23%** | 6 |
-| `Profissao` | **76.87%** | 15 |
-| `Genero` | 70.67% | 3 |
-| `TipoDemandante` | 16.91% | 2 |
+| `Escolaridade` | **76,23%** | 6 |
+| `Profissao` | **76,87%** | 15 |
+| `Genero` | 70,67% | 3 |
+| `TipoDemandante` | 16,91% | 2 |
 
-`IdSolicitante == '0'` (anonymised) on 110,744 rows (16.90%).
+`IdSolicitante == '0'` (anonimizado) em 110.744 linhas (16,90%).
 
-The charter's abstention rule — decline to score when profile data is missing —
-would fire on **77.58%** of all requests, which is not a viable triage product.
-The missingness is also **not informative**: reencaminhamento rate is 7.54% when
-the profile is present vs 7.25% when absent.
+A regra de abstenção do Termo de Abertura — não pontuar quando falta dado de
+perfil — dispararia em **77,58%** de todos os pedidos, o que não constitui
+produto de triagem viável.
 
-## Right-censoring
+A ausência também **não é informativa**: a taxa de reencaminhamento é 7,54%
+quando o perfil está presente e 7,25% quando ausente.
 
-The 2026 file is a 2026-09-14 snapshot, so a September request has had days, not
-months, to be forwarded. Confirmed: positive rate **5.75%** on rows registered
-≥60 days before the snapshot vs **3.60%** on newer rows. Metrics are therefore
-reported on both the full and the matured test set (`MATURITY_DAYS = 60`).
+## Censura à direita
 
-## The headline result: ML barely beats a lookup table
+O arquivo de 2026 é um retrato de 2026-09-14, então um pedido de setembro teve
+dias, não meses, para ser reencaminhado. Confirmado: taxa de positivos **5,75%**
+entre linhas registradas com ≥60 dias de antecedência do retrato, contra
+**3,60%** nas mais recentes. As métricas são portanto reportadas tanto no teste
+completo quanto no maturado (`MATURITY_DAYS = 60`).
 
-Honest arrival-time features only. Baseline = rank by smoothed historical
-reencaminhamento rate per organ, fitted on train years only — one `groupby`.
+## O achado principal: aprendizado de máquina apenas empata com uma tabela
 
-| Matured test 2026 | ROC-AUC | PR-AUC | prec@1% | prec@5% | prec@10% |
+Somente variáveis honestas de chegada. Linha de base: ordenar pela taxa
+histórica suavizada de reencaminhamento por órgão, ajustada só nos anos de
+treino — um único `groupby`.
+
+| Teste 2026 maturado | ROC-AUC | PR-AUC | prec@1% | prec@5% | prec@10% |
 |---|---|---|---|---|---|
-| Organ-rate lookup | 0.7434 | 0.1641 | 36.12% | **24.79%** | 17.79% |
-| LightGBM (161 trees) | 0.7471 | 0.1723 | 36.59% | 24.44% | **18.70%** |
+| Consulta por órgão | 0,7434 | 0,1641 | 36,12% | **24,79%** | 17,79% |
+| LightGBM (161 árvores) | 0,7471 | 0,1723 | 36,59% | 24,44% | **18,70%** |
 
-The model wins on PR-AUC by 0.008 and on precision@10% by 0.9 pp, and **loses at
-precision@5%**. 76% of its gain is organ identity (`orgao_rate` 48.1% +
-`OrgaoDestinatario` 27.7%).
+O modelo ganha 0,008 em PR-AUC e 0,9 pp em precisão@10%, e **perde em
+precisão@5%**. 76% do seu ganho é identidade do órgão (`orgao_rate` 48,1% +
+`OrgaoDestinatario` 27,7%).
 
-**Conclusion:** with leakage removed, essentially all recoverable signal is
-"some organs are chronically misaddressed". That is still operationally useful —
-**4.3× lift at the top-5% queue** — but it does not require machine learning,
-and any published claim must say so.
+**Conclusão:** removido o vazamento, praticamente todo o sinal recuperável é
+"alguns órgãos são cronicamente mal endereçados". Isso ainda é operacionalmente
+útil — **ganho de 4,3× na fila dos 5%** — mas não exige aprendizado de máquina,
+e qualquer publicação precisa dizê-lo.

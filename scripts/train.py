@@ -1,23 +1,28 @@
 """
-Train the LAI reencaminhamento-risk classifier.
+Treina o classificador de risco de reencaminhamento de pedidos LAI.
 
-Design follows the two verification results in docs/VERIFICATION.md:
+O desenho decorre das auditorias registradas em docs/VERIFICATION.md:
 
-  * AssuntoPedido / SubAssuntoPedido are triage OUTPUTS (59.5% missing on
-    just-registered rows, 0.0% once answered) -> EXCLUDED from the production
-    model. Variant B includes them only to quantify the size of the leak.
-  * OrgaoDestinatario is the ADDRESSED organ, not the final recipient -> kept,
-    and it is the strongest single signal available.
-  * Rows with Situacao == "Encaminhada por Outro Órgão" are in transit and their
-    OrgaoDestinatario is the receiver -> dropped from training.
+  * AssuntoPedido / SubAssuntoPedido são SAÍDAS da triagem (59,5% ausentes em
+    linhas recém-registradas, 0,0% após respondidas) -> EXCLUÍDOS do modelo de
+    produção. A variante B os inclui apenas para medir o tamanho do vazamento.
+  * prazo_dias (PrazoAtendimento - DataRegistro) também é vazamento: mediana de
+    21 d sem prorrogação contra 31 d com, exatamente os +10 d do art. 11 §2 da
+    LAI -> EXCLUÍDO. A variante C o inclui só como diagnóstico.
+  * OrgaoDestinatario é o órgão ENDEREÇADO, não o destinatário final -> mantido,
+    e é o sinal isolado mais forte disponível.
+  * Linhas com Situacao == "Encaminhada por Outro Órgão" estão em trânsito e seu
+    OrgaoDestinatario é o receptor -> descartadas do treinamento.
 
-Temporal split, never random: the model scores future arrivals.
-Primary metric is precision@k, not AUC, because the deliverable is a
-capacity-bounded priority queue for senior analysts.
+Corte temporal, nunca aleatório: o modelo pontua chegadas futuras.
+A métrica primária é precisão@k, não AUC, porque o entregável é uma fila de
+prioridade limitada pela capacidade de analistas seniores.
 
-Artifacts are written in formats that load directly into BentoML:
-  artifacts/model_<variant>.txt      LightGBM native text (portable, git-friendly)
-  artifacts/preprocessor.json        category codes + organ lookup + threshold
+Procedimento completo e reproduzível em docs/TREINAMENTO.md.
+
+Os artefatos são gravados em formatos que carregam direto no BentoML:
+  artifacts/model_<variante>.txt     texto nativo do LightGBM (portátil, versionável)
+  artifacts/preprocessor.json        códigos de categoria + tabela por órgão + limiar
 """
 
 import json
@@ -38,8 +43,8 @@ SNAP = "20260914"
 READ_KW = dict(sep=";", encoding="utf-16", dtype=str, na_values=[" ", ""], keep_default_na=True)
 
 TRAIN_YEARS, VAL_YEAR, TEST_YEAR = [2022, 2023, 2024], 2025, 2026
-# A request needs time to be forwarded. Rows registered within this many days of
-# the snapshot have not had that time, so their label is right-censored.
+# Um pedido precisa de tempo para ser reencaminhado. Linhas registradas a menos
+# dias do retrato não tiveram esse tempo, logo seu rótulo sofre censura à direita.
 MATURITY_DAYS = 60
 
 PED_COLS = ["IdPedido", "Esfera", "UF", "Municipio", "OrgaoDestinatario", "Situacao",
@@ -51,11 +56,11 @@ SOL_COLS = ["IdSolicitante", "TipoDemandante", "DataNascimento", "Genero", "Esco
 CAT_BASE = ["Esfera", "UF", "Municipio", "OrgaoDestinatario", "FormaResposta",
             "OrigemSolicitacao", "TipoDemandante", "Genero", "Escolaridade", "Profissao",
             "TipoPessoaJuridica", "Pais", "UF_sol", "Municipio_sol"]
-# prazo_dias is EXCLUDED: verify_h3_prazo.py showed median 21d when not
-# prorrogated vs 31d when prorrogated -- exactly the +10 days of LAI art. 11
-# par. 2. PrazoAtendimento is rewritten when the extension is granted, i.e.
-# after intake, so prazo_dias re-imported FoiProrrogado (already on the
-# exclusion list) through the back door. It held 40.5% of gain before removal.
+# prazo_dias está EXCLUÍDO: verify_h3_prazo.py mostrou mediana de 21 d sem
+# prorrogação contra 31 d com prorrogação -- exatamente os +10 dias do art. 11
+# §2 da LAI. PrazoAtendimento é reescrito quando a prorrogação é concedida, ou
+# seja, depois da chegada; logo prazo_dias reimportava FoiProrrogado (já na
+# lista de exclusão) pela porta dos fundos. Detinha 40,5% do ganho.
 NUM_BASE = ["reg_month", "reg_dow", "reg_day", "idade", "orgao_rate", "uf_match"]
 NUM_LEAKY = ["prazo_dias"]
 CAT_ASSUNTO = ["AssuntoPedido", "SubAssuntoPedido"]
@@ -95,13 +100,13 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
         uf_match=(df.UF_sol.fillna("~") == df.UF.fillna("!")).astype("int8"),
         y=df.FoiReencaminhado.eq("Sim").astype("int8"),
     )
-    # Implausible ages are data errors, not signal.
+    # Idades implausíveis são erro de dado, não sinal.
     df.loc[(df.idade < 10) | (df.idade > 110), "idade"] = np.nan
     return df
 
 
 def fit_organ_rate(train: pd.DataFrame, prior_weight: float = 50.0):
-    """Smoothed historical reencaminhamento rate per organ, fit on TRAIN ONLY."""
+    """Taxa histórica suavizada de reencaminhamento por órgão, ajustada SÓ NO TREINO."""
     base = train.y.mean()
     g = train.groupby("OrgaoDestinatario").y.agg(["sum", "count"])
     rate = (g["sum"] + prior_weight * base) / (g["count"] + prior_weight)
@@ -109,7 +114,7 @@ def fit_organ_rate(train: pd.DataFrame, prior_weight: float = 50.0):
 
 
 def encode(df, cats, cat_maps=None):
-    """Integer-code categoricals. Unseen/missing -> -1, which LightGBM treats as missing."""
+    """Codifica categóricas em inteiros. Inédito/ausente -> -1, tratado como faltante."""
     out, maps = {}, {}
     for c in cats:
         s = df[c].astype("string")
@@ -130,9 +135,10 @@ def precision_at_k(y, p, frac):
 
 
 def evaluate(name, y, p, base=None):
-    # BUGFIX: lift must be measured against THIS split's own base rate. Passing
-    # the train base rate in made every test-year lift wrong (understated by
-    # 8.03/5.24 = 1.53x), because the positive rate falls across the horizon.
+    # CORREÇÃO DE DEFEITO: o ganho tem de ser medido contra a taxa-base DESTA
+    # partição. Passar a taxa-base do treino tornava errado todo ganho do ano de
+    # teste (subestimado por 8,03/5,24 = 1,53x), porque a taxa de positivos cai
+    # ao longo do horizonte temporal.
     base = float(y.mean())
     print(f"\n  -- {name} --   n={len(y):,}  positives={int(y.sum()):,}  base rate={base*100:.2f}%")
     print(f"     ROC-AUC {roc_auc_score(y, p):.4f}   PR-AUC {average_precision_score(y, p):.4f}")
@@ -181,11 +187,10 @@ def run_variant(name, feats_cat, feats_num, tr, va, te, organ_rate, base):
     pte = booster.predict(Xte)
     m["test"] = evaluate(f"TEST {TEST_YEAR} (all rows, RIGHT-CENSORED)", yte, pte)
 
-    # Right-censoring: the 2026 file is a 2026-09-14 snapshot, so a request
-    # registered in September has had days -- not months -- to be forwarded.
-    # Its FoiReencaminhado may still flip to "Sim" later, which depresses the
-    # observed positive rate and understates precision. Re-score on rows old
-    # enough to have matured.
+    # Censura à direita: o arquivo de 2026 é um retrato de 2026-09-14, então um
+    # pedido de setembro teve dias -- não meses -- para ser reencaminhado. Seu
+    # FoiReencaminhado ainda pode virar "Sim", o que deprime a taxa de positivos
+    # observada e subestima a precisão. Reavalia nas linhas maturadas.
     mature = (te["_reg"] <= pd.Timestamp("2026-09-14") - pd.Timedelta(days=MATURITY_DAYS)).to_numpy()
     if mature.sum() > 1000:
         m["test_matured"] = evaluate(
@@ -225,7 +230,7 @@ def main():
     print(f"loaded + featurised in {time.perf_counter() - t0:.1f}s")
 
     all_df = pd.concat(frames.values(), ignore_index=True)
-    # Drop in-transit rows: their OrgaoDestinatario is the receiver, not the addressee.
+    # Descarta linhas em trânsito: o OrgaoDestinatario delas é o receptor, não o endereçado.
     n0 = len(all_df)
     all_df = all_df[all_df.Situacao.ne("Encaminhada por Outro Órgão")].copy()
     print(f"rows {n0:,} -> {len(all_df):,} after dropping in-transit "
@@ -241,9 +246,10 @@ def main():
     for d in (tr, va, te):
         d["orgao_rate"] = d.OrgaoDestinatario.map(organ_rate).fillna(base).astype("float32")
 
-    # BASELINE: rank by the historical organ rate alone -- one groupby, no model.
-    # 76% of the trained model's gain is organ identity, so if LightGBM cannot
-    # clear this bar the honest deliverable is a lookup table, not an ML system.
+    # LINHA DE BASE: ordenar só pela taxa histórica do órgão -- um groupby, sem
+    # modelo. 76% do ganho do modelo treinado é identidade do órgão; se o
+    # LightGBM não superar essa barra, o entregável honesto é uma tabela de
+    # consulta, não um sistema de aprendizado de máquina.
     print(f"\n{'=' * 78}\nBASELINE — rank by orgao_rate only (no model)\n{'=' * 78}")
     baseline_metrics = {}
     for label, d in (("VALIDATION " + str(VAL_YEAR), va), ("TEST " + str(TEST_YEAR), te)):
@@ -258,8 +264,8 @@ def main():
         "arrival", CAT_BASE, NUM_BASE, tr, va, te, organ_rate, base)
     booster_b, maps_b, m_b, cols_b = run_variant(
         "with_assunto", CAT_BASE + CAT_ASSUNTO, NUM_BASE, tr, va, te, organ_rate, base)
-    # Diagnostic only: quantifies how much the leaky deadline feature inflates
-    # the headline. Never ship this one.
+    # Só diagnóstico: quantifica o quanto a variável vazada de prazo infla o
+    # resultado de vitrine. Nunca implantar esta variante.
     booster_c, maps_c, m_c, cols_c = run_variant(
         "LEAKY_with_prazo", CAT_BASE, NUM_BASE + NUM_LEAKY, tr, va, te, organ_rate, base)
 
@@ -290,7 +296,7 @@ def main():
                       **{c: pd.to_numeric(te[c], errors="coerce").astype("float32").to_numpy()
                          for c in NUM_BASE}}, columns=cols_a)), base)
 
-    # Serving artifact: everything the BentoML service needs, no pickles.
+    # Artefato de serviço: tudo de que o serviço BentoML precisa, sem pickle.
     meta = {
         "model_file": "model_arrival.txt",
         "created_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),

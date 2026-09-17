@@ -1,10 +1,11 @@
-"""Import the trained artifact into the BentoML model store.
+"""Importa o artefato treinado para o repositório de modelos do BentoML.
 
-    cd ~/lai-triagem && .venv/bin/python scripts/register_bento.py
+    cd ~/lai-triagem && uv run python scripts/register_bento.py
 
-Takes artifacts/model_arrival.txt (LightGBM native text) plus
-artifacts/preprocessor.json and registers them as one BentoML model, with the
-preprocessor carried in custom_objects so the service needs no side files.
+Toma artifacts/model_arrival.txt (texto nativo do LightGBM) mais
+artifacts/preprocessor.json e registra os dois como um único modelo BentoML,
+com o pré-processador embarcado em `custom_objects`, de modo que o serviço não
+precisa de arquivos avulsos.
 """
 
 import json
@@ -23,6 +24,7 @@ saved = bentoml.lightgbm.save_model(
     NAME,
     booster,
     signatures={"predict": {"batchable": True, "batch_dim": 0}},
+    # O pré-processador viaja com o modelo: evita divergência treino/serviço.
     custom_objects={"preprocessor": meta},
     labels={
         "task": "lai-reencaminhamento-risk",
@@ -34,8 +36,9 @@ saved = bentoml.lightgbm.save_model(
         "test_precision_at_5pct": meta["metrics"]["arrival"]["test_matured"]["precision_at"]["0.05"],
         "n_features": len(meta["feature_order"]),
         "excluded_leakage_features": meta["excluded_leakage_features"],
-        "caveat": ("honest arrival-time model; barely beats an organ-rate lookup. "
-                   "See docs/VERIFICATION.md"),
+        # Registrado no próprio artefato para que ninguém o implante sem saber.
+        "caveat": ("modelo honesto de chegada; apenas empata com uma consulta "
+                   "histórica por órgão. Ver docs/VERIFICATION.md"),
     },
 )
 
@@ -43,4 +46,4 @@ print(f"registered: {saved.tag}")
 print(f"  path     : {saved.path}")
 print(f"  trees    : {booster.num_trees()}")
 print(f"  features : {len(meta['feature_order'])}")
-print("\nserve with:  .venv/bin/bentoml serve service.py:LaiTriagem")
+print("\nservir com:  uv run bentoml serve service.py:LaiTriagem")
