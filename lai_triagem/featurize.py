@@ -50,7 +50,9 @@ class Preprocessor:
         self.organ_movel_365: dict[str, float] = meta.get("organ_rate_movel_365d", {})
         self.organ_birth: dict[str, str] = meta.get("organ_birth", {})
         self.base_rate: float = meta["base_rate"]
-        self.threshold: float = meta.get("threshold", 0.1691)
+        # O limiar vem do artefato (quantil da validação, recalibrado a cada
+        # retreinamento). O padrão só existe para artefatos antigos sem a chave.
+        self.threshold: float = meta.get("threshold", 0.155738)
         # Nomes que o chamador deve informar; ausentes viram o valor padrão.
         self.caller_features: list[str] = meta.get("caller_supplied_features", [])
         self.caller_default: float = float(meta.get("caller_supplied_default", -1))

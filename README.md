@@ -272,7 +272,9 @@ Também são removidas da modelagem as **459 linhas** com
 |---|---|---|
 | `probabilidade_reencaminhamento` | float 0–1 | Saída do LightGBM. **Não é calibrada** — serve para ordenar, não como probabilidade literal |
 | `alerta` | `"ALTO RISCO"` \| `"BAIXO RISCO"` | Comparação com `threshold` |
-| `threshold` | float | 0,1691 — ponto de operação da fila de 10% |
+| `threshold` | float | **0,155738** — quantil 90 dos escores de validação, ponto de operação da fila de 10%. Reajustado a cada retreinamento |
+| `orgao_rate_movel_90d` | float | Taxa do órgão na janela móvel de 90 d, exposta para auditoria |
+| `historico_informado` | bool | `false` se o chamador omitiu o histórico do solicitante — o escore está degradado |
 | `orgao_conhecido` | bool | `false` se o órgão não aparece nos anos de treino; nesse caso o escore recai na taxa-base |
 | `orgao_rate_historica` | float | Taxa histórica do órgão, exposta para auditabilidade do escore |
 | `base_rate_coorte` | float | 0,080268 — taxa-base da coorte de treino, para referência |
