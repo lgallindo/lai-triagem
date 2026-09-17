@@ -1,28 +1,33 @@
 """
 Treina o classificador de risco de reencaminhamento de pedidos LAI.
 
-O desenho decorre das auditorias registradas em docs/VERIFICATION.md:
+O desenho decorre das auditorias registradas em docs/VERIFICATION.md. Cinco
+famílias de variáveis foram excluídas por serem posteriores à triagem:
 
-  * AssuntoPedido / SubAssuntoPedido são SAÍDAS da triagem (59,5% ausentes em
-    linhas recém-registradas, 0,0% após respondidas) -> EXCLUÍDOS do modelo de
-    produção. A variante B os inclui apenas para medir o tamanho do vazamento.
-  * prazo_dias (PrazoAtendimento - DataRegistro) também é vazamento: mediana de
-    21 d sem prorrogação contra 31 d com, exatamente os +10 d do art. 11 §2 da
-    LAI -> EXCLUÍDO. A variante C o inclui só como diagnóstico.
-  * OrgaoDestinatario é o órgão ENDEREÇADO, não o destinatário final -> mantido,
-    e é o sinal isolado mais forte disponível.
-  * Linhas com Situacao == "Encaminhada por Outro Órgão" estão em trânsito e seu
-    OrgaoDestinatario é o receptor -> descartadas do treinamento.
+  * AssuntoPedido / SubAssuntoPedido são SAÍDAS da triagem (79,6% ausentes em
+    pedidos de 3 dias, 0,000% após respondidos). Variante B mede o vazamento.
+  * prazo_dias reimportava FoiProrrogado: mediana de 21 d sem prorrogação contra
+    31 d com, exatamente os +10 d do art. 11 §2 da LAI. Variante C mede.
+  * protocolo_seq codifica a unidade registradora, não um sequencial neutro:
+    separação de 79x dentro de um mesmo órgão-ano (H5). Em quarentena.
+  * OrgaoDestinatario é o órgão ENDEREÇADO, não o final -> mantido.
+  * Linhas com Situacao == "Encaminhada por Outro Órgão" estão em trânsito ->
+    descartadas.
 
-Corte temporal, nunca aleatório: o modelo pontua chegadas futuras.
-A métrica primária é precisão@k, não AUC, porque o entregável é uma fila de
-prioridade limitada pela capacidade de analistas seniores.
+Conjunto de produção (30 variáveis), após a segunda rodada de engenharia:
+  14 categóricas + 6 numéricas de base
+  + 2 de histórico agregado do solicitante          (G2, +0,0287 de PR-AUC)
+  + 5 de experiência refinada do solicitante        (T1, +0,0434)
+  + 2 de taxa móvel por órgão                       (+0,0056)
+  + 1 de idade do órgão
 
-Procedimento completo e reproduzível em docs/TREINAMENTO.md.
+As do solicitante são FORNECIDAS PELO CHAMADOR em produção, não embarcadas no
+artefato — ver docs/DECISAO_ESTADO_SOLICITANTE.md. As do órgão são embarcadas.
 
-Os artefatos são gravados em formatos que carregam direto no BentoML:
-  artifacts/model_<variante>.txt     texto nativo do LightGBM (portátil, versionável)
-  artifacts/preprocessor.json        códigos de categoria + tabela por órgão + limiar
+Corte temporal, nunca aleatório. Métrica primária: precisão@k, não AUC, porque o
+entregável é uma fila limitada pela capacidade de analistas seniores.
+
+Procedimento reproduzível completo em docs/TREINAMENTO.md.
 """
 
 import json
@@ -38,14 +43,19 @@ ROOT = Path.home() / "lai-triagem"
 INTERIM = ROOT / "data" / "interim"
 ART = ROOT / "artifacts"
 ART.mkdir(exist_ok=True)
-SNAP = "20260914"
 
 READ_KW = dict(sep=";", encoding="utf-16", dtype=str, na_values=[" ", ""], keep_default_na=True)
-
 TRAIN_YEARS, VAL_YEAR, TEST_YEAR = [2022, 2023, 2024], 2025, 2026
-# Um pedido precisa de tempo para ser reencaminhado. Linhas registradas a menos
-# dias do retrato não tiveram esse tempo, logo seu rótulo sofre censura à direita.
+COHORT = TRAIN_YEARS + [VAL_YEAR, TEST_YEAR]
+# Anos lidos SÓ para datar a primeira aparição de cada órgão. Sem eles, órgão
+# pré-existente pareceria nascido em 01/01/2022.
+BIRTH_YEARS = list(range(2012, 2022))
+# Um pedido precisa de tempo para ser reencaminhado; linhas registradas a menos
+# dias do retrato têm rótulo censurado à direita.
 MATURITY_DAYS = 60
+SNAPSHOT = pd.Timestamp("2026-09-14")
+SEED = 42
+QUEUE_FRAC = 0.10  # ponto de operação: fila dos 10% mais arriscados
 
 PED_COLS = ["IdPedido", "Esfera", "UF", "Municipio", "OrgaoDestinatario", "Situacao",
             "DataRegistro", "PrazoAtendimento", "FoiReencaminhado", "FormaResposta",
@@ -56,12 +66,17 @@ SOL_COLS = ["IdSolicitante", "TipoDemandante", "DataNascimento", "Genero", "Esco
 CAT_BASE = ["Esfera", "UF", "Municipio", "OrgaoDestinatario", "FormaResposta",
             "OrigemSolicitacao", "TipoDemandante", "Genero", "Escolaridade", "Profissao",
             "TipoPessoaJuridica", "Pais", "UF_sol", "Municipio_sol"]
-# prazo_dias está EXCLUÍDO: verify_h3_prazo.py mostrou mediana de 21 d sem
-# prorrogação contra 31 d com prorrogação -- exatamente os +10 dias do art. 11
-# §2 da LAI. PrazoAtendimento é reescrito quando a prorrogação é concedida, ou
-# seja, depois da chegada; logo prazo_dias reimportava FoiProrrogado (já na
-# lista de exclusão) pela porta dos fundos. Detinha 40,5% do ganho.
 NUM_BASE = ["reg_month", "reg_dow", "reg_day", "idade", "orgao_rate", "uf_match"]
+# Fornecidas pelo chamador em produção (dado pessoal, não embarcado).
+NUM_SOLICITANTE = ["n_pedidos_previos", "prev_reenc_solicitante",
+                   "prev_reenc_rate_solicitante", "n_pedidos_previos_neste_orgao",
+                   "prev_reenc_neste_orgao", "n_orgaos_distintos_previos",
+                   "dias_desde_ultimo_pedido"]
+# Embarcadas no artefato (conduta de entidade pública).
+NUM_ORGAO = ["orgao_rate_movel_90d", "orgao_rate_movel_365d",
+             "dias_desde_primeiro_pedido_do_orgao"]
+NUM_PROD = NUM_BASE + NUM_SOLICITANTE + NUM_ORGAO
+
 NUM_LEAKY = ["prazo_dias"]
 CAT_ASSUNTO = ["AssuntoPedido", "SubAssuntoPedido"]
 
@@ -74,43 +89,127 @@ def _clean(df):
     return df
 
 
-def load_year(year: int) -> pd.DataFrame:
-    ped = _clean(pd.read_csv(INTERIM / f"{SNAP}_Pedidos_csv_{year}.csv", usecols=PED_COLS, **READ_KW))
-    sol = _clean(pd.read_csv(INTERIM / f"{SNAP}_SolicitantesPedidos_csv_{year}.csv",
-                             usecols=SOL_COLS, **READ_KW))
-    sol = sol.rename(columns={"UF": "UF_sol", "Municipio": "Municipio_sol"})
-    sol = sol.drop_duplicates("IdSolicitante")
-    df = ped.merge(sol, on="IdSolicitante", how="left")
-    df["ano"] = year
-    return df
+def _latest(year, kind="Pedidos"):
+    """Glob em vez de prefixo fixo: a CGU trocou o retrato de 20260914 para
+    20260915 durante o trabalho, e prefixo fixo perdia arquivos em silêncio."""
+    hits = sorted(INTERIM.glob(f"*_{kind}_csv_{year}.csv"))
+    return hits[-1] if hits else None
 
 
-def build_features(df: pd.DataFrame) -> pd.DataFrame:
+def load_cohort():
+    frames = []
+    for y in COHORT:
+        ped = _clean(pd.read_csv(_latest(y), usecols=PED_COLS, **READ_KW))
+        sol = _clean(pd.read_csv(_latest(y, "SolicitantesPedidos"), usecols=SOL_COLS, **READ_KW))
+        sol = sol.rename(columns={"UF": "UF_sol", "Municipio": "Municipio_sol"})
+        d = ped.merge(sol.drop_duplicates("IdSolicitante"), on="IdSolicitante", how="left")
+        d["ano"] = y
+        frames.append(d)
+    return pd.concat(frames, ignore_index=True)
+
+
+def organ_birth_table():
+    """Primeira data de aparição de cada órgão, de 2012 em diante.
+    Só usa datas, nunca rótulos, portanto não há risco de vazamento de alvo."""
+    first = {}
+    for y in BIRTH_YEARS + COHORT:
+        f = _latest(y)
+        if f is None:
+            continue
+        d = _clean(pd.read_csv(f, usecols=["OrgaoDestinatario", "DataRegistro"], **READ_KW))
+        d["_reg"] = pd.to_datetime(d.DataRegistro, format="%d/%m/%Y", errors="coerce")
+        for organ, dt in d.groupby("OrgaoDestinatario")._reg.min().items():
+            if pd.notna(dt) and (organ not in first or dt < first[organ]):
+                first[organ] = dt
+    return first
+
+
+def organ_rolling(df, windows=(90, 365)):
+    """Agregados por órgão em janela móvel, ESTRITAMENTE anteriores à data corrente.
+
+    side="left" no limite superior exclui a própria linha e todas as do mesmo
+    dia. Sem isso a variável leria o próprio rótulo.
+    """
+    out = {}
+    for w in windows:
+        out[f"cnt_{w}"] = np.zeros(len(df))
+        out[f"sum_{w}"] = np.zeros(len(df))
+    dates_all = df["_reg"].to_numpy("datetime64[ns]")
+    y_all = df["y"].to_numpy()
+    for _, idx in df.groupby("OrgaoDestinatario", sort=False).indices.items():
+        order = np.argsort(dates_all[idx], kind="stable")
+        idx_s = idx[order]
+        d_s = dates_all[idx_s]
+        ycum = np.concatenate([[0.0], np.cumsum(y_all[idx_s])])
+        hi = np.searchsorted(d_s, d_s, side="left")
+        for w in windows:
+            lo = np.searchsorted(d_s, d_s - np.timedelta64(w, "D"), side="left")
+            out[f"cnt_{w}"][idx_s] = hi - lo
+            out[f"sum_{w}"][idx_s] = ycum[hi] - ycum[lo]
+    return out
+
+
+def build_features(df, births):
     reg = pd.to_datetime(df.DataRegistro, format="%d/%m/%Y", errors="coerce")
     prazo = pd.to_datetime(df.PrazoAtendimento, format="%d/%m/%Y", errors="coerce")
     nasc = pd.to_datetime(df.DataNascimento, format="%d/%m/%Y", errors="coerce")
-
     df = df.assign(
         _reg=reg,
-        prazo_dias=(prazo - reg).dt.days,
-        reg_month=reg.dt.month,
-        reg_dow=reg.dt.dayofweek,
-        reg_day=reg.dt.day,
+        prazo_dias=(prazo - reg).dt.days,   # só para a variante diagnóstica C
+        reg_month=reg.dt.month, reg_dow=reg.dt.dayofweek, reg_day=reg.dt.day,
         idade=((reg - nasc).dt.days / 365.25).round(1),
         uf_match=(df.UF_sol.fillna("~") == df.UF.fillna("!")).astype("int8"),
         y=df.FoiReencaminhado.eq("Sim").astype("int8"),
     )
     # Idades implausíveis são erro de dado, não sinal.
     df.loc[(df.idade < 10) | (df.idade > 110), "idade"] = np.nan
+    # Descarta linhas em trânsito: o OrgaoDestinatario delas é o receptor.
+    df = df[df.Situacao.ne("Encaminhada por Outro Órgão")].copy()
+    df = df.sort_values("_reg", kind="stable").reset_index(drop=True)
+
+    # --- histórico do solicitante, estritamente causal -----------------------
+    # Soma acumulada DESLOCADA: a linha corrente nunca vê a si mesma nem o
+    # futuro. Solicitante anonimizado ('0') não acumula: não é uma pessoa.
+    real = df.IdSolicitante.ne("0")
+    sub = df.loc[real]
+    g_sol = sub.groupby("IdSolicitante", sort=False)
+    g_pair = sub.groupby(["IdSolicitante", "OrgaoDestinatario"], sort=False)
+    first_pair = (~sub.duplicated(["IdSolicitante", "OrgaoDestinatario"])).astype("int8")
+    vals = {
+        "n_pedidos_previos": g_sol.cumcount(),
+        "prev_reenc_solicitante": g_sol.y.cumsum() - sub.y,
+        "n_pedidos_previos_neste_orgao": g_pair.cumcount(),
+        "prev_reenc_neste_orgao": g_pair.y.cumsum() - sub.y,
+        "n_orgaos_distintos_previos": first_pair.groupby(sub.IdSolicitante).cumsum() - first_pair,
+        "dias_desde_ultimo_pedido": g_sol._reg.diff().dt.days,
+    }
+    for col, v in vals.items():
+        df[col] = np.nan
+        df.loc[real, col] = v.astype("float32")
+    df["prev_reenc_rate_solicitante"] = (
+        df.prev_reenc_solicitante / df.n_pedidos_previos.where(df.n_pedidos_previos > 0)
+    ).astype("float32")
+    # -1 marca "sem histórico", distinguível de zero, e é o que o chamador
+    # deve enviar quando não tiver o dado.
+    for c in NUM_SOLICITANTE:
+        df[c] = df[c].fillna(-1).astype("float32")
+
+    # --- dinâmica do órgão ---------------------------------------------------
+    roll = organ_rolling(df)
+    base_all = float(df.y.mean())
+    for w in (90, 365):
+        cnt, sm = roll[f"cnt_{w}"], roll[f"sum_{w}"]
+        df[f"orgao_rate_movel_{w}d"] = np.where(cnt > 0, sm / np.maximum(cnt, 1), base_all)
+    born = df.OrgaoDestinatario.map(births)
+    df["dias_desde_primeiro_pedido_do_orgao"] = (df._reg - born).dt.days.astype("float32")
     return df
 
 
-def fit_organ_rate(train: pd.DataFrame, prior_weight: float = 50.0):
+def fit_organ_rate(train, prior_weight=50.0):
     """Taxa histórica suavizada de reencaminhamento por órgão, ajustada SÓ NO TREINO."""
     base = train.y.mean()
     g = train.groupby("OrgaoDestinatario").y.agg(["sum", "count"])
-    rate = (g["sum"] + prior_weight * base) / (g["count"] + prior_weight)
-    return rate.to_dict(), float(base)
+    return ((g["sum"] + prior_weight * base) / (g["count"] + prior_weight)).to_dict(), float(base)
 
 
 def encode(df, cats, cat_maps=None):
@@ -118,11 +217,8 @@ def encode(df, cats, cat_maps=None):
     out, maps = {}, {}
     for c in cats:
         s = df[c].astype("string")
-        if cat_maps is None:
-            levels = pd.Index(s.dropna().unique()).sort_values()
-            m = {v: i for i, v in enumerate(levels)}
-        else:
-            m = cat_maps[c]
+        m = ({v: i for i, v in enumerate(pd.Index(s.dropna().unique()).sort_values())}
+             if cat_maps is None else cat_maps[c])
         out[c] = s.map(m).fillna(-1).astype("int32").to_numpy()
         maps[c] = m
     return out, maps
@@ -130,195 +226,189 @@ def encode(df, cats, cat_maps=None):
 
 def precision_at_k(y, p, frac):
     k = max(1, int(round(frac * len(y))))
-    idx = np.argsort(-p)[:k]
-    return float(y[idx].mean()), k
+    return float(y[np.argsort(-p)[:k]].mean()), k
 
 
-def evaluate(name, y, p, base=None):
-    # CORREÇÃO DE DEFEITO: o ganho tem de ser medido contra a taxa-base DESTA
-    # partição. Passar a taxa-base do treino tornava errado todo ganho do ano de
-    # teste (subestimado por 8,03/5,24 = 1,53x), porque a taxa de positivos cai
-    # ao longo do horizonte temporal.
+def evaluate(name, y, p):
+    # O ganho tem de ser medido contra a taxa-base DESTA partição: a taxa de
+    # positivos cai ao longo do horizonte (8,03% no treino, 5,23% no teste).
     base = float(y.mean())
-    print(f"\n  -- {name} --   n={len(y):,}  positives={int(y.sum()):,}  base rate={base*100:.2f}%")
+    print(f"\n  -- {name} --   n={len(y):,}  positivos={int(y.sum()):,}  taxa-base={base*100:.2f}%")
     print(f"     ROC-AUC {roc_auc_score(y, p):.4f}   PR-AUC {average_precision_score(y, p):.4f}")
     rows = []
     for frac in (0.01, 0.02, 0.05, 0.10, 0.20):
         prec, k = precision_at_k(y, p, frac)
         rows.append((f"top {frac*100:.0f}%", k, f"{prec*100:.2f}%", f"{prec/base:.2f}x"))
-    print(pd.DataFrame(rows, columns=["queue", "k", "precision", "lift"]).to_string(index=False))
+    print(pd.DataFrame(rows, columns=["fila", "k", "precisao", "ganho"]).to_string(index=False))
     return {"roc_auc": float(roc_auc_score(y, p)),
             "pr_auc": float(average_precision_score(y, p)),
             "precision_at": {f"{f:.2f}": precision_at_k(y, p, f)[0] for f in (0.01, 0.05, 0.10)}}
 
 
-def run_variant(name, feats_cat, feats_num, tr, va, te, organ_rate, base):
-    print(f"\n{'=' * 78}\nVARIANT {name}   ({len(feats_cat)} categorical + {len(feats_num)} numeric)\n{'=' * 78}")
-    cols = feats_cat + feats_num
+def run_variant(name, cats, nums, tr, va, te, mask):
+    print(f"\n{'=' * 78}\nVARIANTE {name}   ({len(cats)} categóricas + {len(nums)} numéricas)\n{'=' * 78}")
+    cols = cats + nums
+    e_tr, maps = encode(tr, cats)
+    e_va, _ = encode(va, cats, maps)
+    e_te, _ = encode(te, cats, maps)
 
-    enc_tr, maps = encode(tr, feats_cat)
-    enc_va, _ = encode(va, feats_cat, maps)
-    enc_te, _ = encode(te, feats_cat, maps)
+    def mat(d, e):
+        m = {c: e[c] for c in cats}
+        for c in nums:
+            m[c] = pd.to_numeric(d[c], errors="coerce").astype("float32").to_numpy()
+        return pd.DataFrame(m, columns=cols)
 
-    def mat(df, enc):
-        d = {c: enc[c] for c in feats_cat}
-        for c in feats_num:
-            d[c] = pd.to_numeric(df[c], errors="coerce").astype("float32").to_numpy()
-        return pd.DataFrame(d, columns=cols)
-
-    Xtr, Xva, Xte = mat(tr, enc_tr), mat(va, enc_va), mat(te, enc_te)
+    Xtr, Xva, Xte = mat(tr, e_tr), mat(va, e_va), mat(te, e_te)
     ytr, yva, yte = tr.y.to_numpy(), va.y.to_numpy(), te.y.to_numpy()
-
-    dtr = lgb.Dataset(Xtr, ytr, categorical_feature=feats_cat, free_raw_data=False)
-    dva = lgb.Dataset(Xva, yva, categorical_feature=feats_cat, reference=dtr, free_raw_data=False)
-
     params = dict(objective="binary", metric="average_precision", learning_rate=0.1,
                   num_leaves=31, max_bin=63, feature_fraction=0.8, bagging_fraction=0.8,
-                  bagging_freq=1, min_data_in_leaf=100, num_threads=6, verbose=-1, seed=42)
-
+                  bagging_freq=1, min_data_in_leaf=100, num_threads=6, verbose=-1, seed=SEED)
     t0 = time.perf_counter()
-    booster = lgb.train(params, dtr, num_boost_round=600, valid_sets=[dva],
-                        callbacks=[lgb.early_stopping(40, verbose=False)])
-    fit_s = time.perf_counter() - t0
-    print(f"  fit: {fit_s:.2f}s   best_iter={booster.best_iteration}   trees={booster.num_trees()}")
+    b = lgb.train(params, lgb.Dataset(Xtr, ytr, categorical_feature=cats, free_raw_data=False),
+                  num_boost_round=600,
+                  valid_sets=[lgb.Dataset(Xva, yva, categorical_feature=cats, free_raw_data=False)],
+                  callbacks=[lgb.early_stopping(40, verbose=False)])
+    secs = time.perf_counter() - t0
+    print(f"  ajuste: {secs:.2f}s   melhor iteração={b.best_iteration}   árvores={b.num_trees()}")
 
-    m = {"fit_seconds": round(fit_s, 2), "best_iteration": booster.best_iteration}
-    m["val"] = evaluate(f"VALIDATION {VAL_YEAR}", yva, booster.predict(Xva))
-    pte = booster.predict(Xte)
-    m["test"] = evaluate(f"TEST {TEST_YEAR} (all rows, RIGHT-CENSORED)", yte, pte)
+    m = {"fit_seconds": round(secs, 2), "best_iteration": b.best_iteration}
+    pva, pte = b.predict(Xva), b.predict(Xte)
+    m["val"] = evaluate(f"VALIDAÇÃO {VAL_YEAR}", yva, pva)
+    m["test"] = evaluate(f"TESTE {TEST_YEAR} (todas as linhas, CENSURADO)", yte, pte)
+    m["test_matured"] = evaluate(
+        f"TESTE {TEST_YEAR} (maturado: registro <= {MATURITY_DAYS}d antes do retrato)",
+        yte[mask], pte[mask])
+    print(f"     (censura: {mask.sum():,} de {len(yte):,} maturadas; positivos "
+          f"{100*yte[mask].mean():.2f}% maturadas vs {100*yte[~mask].mean():.2f}% recentes)")
 
-    # Censura à direita: o arquivo de 2026 é um retrato de 2026-09-14, então um
-    # pedido de setembro teve dias -- não meses -- para ser reencaminhado. Seu
-    # FoiReencaminhado ainda pode virar "Sim", o que deprime a taxa de positivos
-    # observada e subestima a precisão. Reavalia nas linhas maturadas.
-    mature = (te["_reg"] <= pd.Timestamp("2026-09-14") - pd.Timedelta(days=MATURITY_DAYS)).to_numpy()
-    if mature.sum() > 1000:
-        m["test_matured"] = evaluate(
-            f"TEST {TEST_YEAR} (matured: registered <= {MATURITY_DAYS}d before snapshot)",
-            yte[mature], pte[mature])
-        print(f"     (censoring check: {mature.sum():,} of {len(yte):,} rows matured; "
-              f"positive rate {100*yte[mature].mean():.2f}% matured vs "
-              f"{100*yte[~mature].mean():.2f}% unmatured)")
-
-    imp = pd.Series(booster.feature_importance("gain"), index=cols).sort_values(ascending=False)
-    print("\n  top 12 features by gain:")
-    print((100 * imp / imp.sum()).head(12).round(2).to_string())
-
-    path = ART / f"model_{name}.txt"
-    booster.save_model(str(path))
-    print(f"\n  saved {path.name}  ({path.stat().st_size / 1024:.0f} KB)")
-    return booster, maps, m, cols
+    imp = pd.Series(b.feature_importance("gain"), index=cols).sort_values(ascending=False)
+    print("\n  15 variáveis de maior ganho (%):")
+    print((100 * imp / imp.sum()).head(15).round(2).to_string())
+    p = ART / f"model_{name}.txt"
+    b.save_model(str(p))
+    print(f"\n  gravado {p.name}  ({p.stat().st_size / 1024:.0f} KB)")
+    return b, maps, m, cols, pte
 
 
-def fairness(te, p, base):
-    print(f"\n{'=' * 78}\nEQUITY AUDIT — alert composition at top-10% queue (TAP 6.1)\n{'=' * 78}")
-    k = int(round(0.10 * len(te)))
+def equity_audit(te, p):
+    print(f"\n{'=' * 78}\nAUDITORIA DE EQUIDADE — composição da fila de {QUEUE_FRAC*100:.0f}% (TAP 6.1)\n{'=' * 78}")
+    k = int(round(QUEUE_FRAC * len(te)))
     flagged = te.iloc[np.argsort(-p)[:k]]
     for col in ("Escolaridade", "Genero", "TipoDemandante"):
         pop = te[col].value_counts(normalize=True, dropna=False)
         alert = flagged[col].value_counts(normalize=True, dropna=False)
-        cmp = pd.DataFrame({"population_%": (100 * pop).round(2),
-                            "alert_queue_%": (100 * alert).round(2)})
-        cmp["ratio"] = (cmp["alert_queue_%"] / cmp["population_%"]).round(2)
+        cmp = pd.DataFrame({"populacao_%": (100 * pop).round(2),
+                            "fila_alerta_%": (100 * alert).round(2)})
+        cmp["razao"] = (cmp["fila_alerta_%"] / cmp["populacao_%"]).round(2)
         print(f"\n  {col}:")
-        print(cmp.sort_values("population_%", ascending=False).head(8).to_string())
+        print(cmp.sort_values("populacao_%", ascending=False).head(8).to_string())
 
 
 def main():
     t0 = time.perf_counter()
-    frames = {y: build_features(load_year(y)) for y in TRAIN_YEARS + [VAL_YEAR, TEST_YEAR]}
-    print(f"loaded + featurised in {time.perf_counter() - t0:.1f}s")
+    print("datando a primeira aparição de cada órgão (2012 em diante)...")
+    births = organ_birth_table()
+    print(f"  órgãos datados: {len(births):,}   mais antigo {min(births.values()).date()}")
 
-    all_df = pd.concat(frames.values(), ignore_index=True)
-    # Descarta linhas em trânsito: o OrgaoDestinatario delas é o receptor, não o endereçado.
-    n0 = len(all_df)
-    all_df = all_df[all_df.Situacao.ne("Encaminhada por Outro Órgão")].copy()
-    print(f"rows {n0:,} -> {len(all_df):,} after dropping in-transit "
-          f"({n0 - len(all_df):,} with Situacao='Encaminhada por Outro Órgão')")
+    df = build_features(load_cohort(), births)
+    print(f"carregado e featurizado em {time.perf_counter() - t0:.1f}s")
 
-    tr = all_df[all_df.ano.isin(TRAIN_YEARS)].copy()
-    va = all_df[all_df.ano.eq(VAL_YEAR)].copy()
-    te = all_df[all_df.ano.eq(TEST_YEAR)].copy()
-    print(f"train {TRAIN_YEARS} n={len(tr):,}  val {VAL_YEAR} n={len(va):,}  test {TEST_YEAR} n={len(te):,}")
-    print(f"reenc rate  train {tr.y.mean()*100:.2f}%  val {va.y.mean()*100:.2f}%  test {te.y.mean()*100:.2f}%")
+    tr = df[df.ano.isin(TRAIN_YEARS)].copy()
+    va = df[df.ano.eq(VAL_YEAR)].copy()
+    te = df[df.ano.eq(TEST_YEAR)].copy()
+    mask = (te._reg <= SNAPSHOT - pd.Timedelta(days=MATURITY_DAYS)).to_numpy()
+    print(f"treino {TRAIN_YEARS} n={len(tr):,}  val {VAL_YEAR} n={len(va):,}  "
+          f"teste {TEST_YEAR} n={len(te):,} (maturado {mask.sum():,})")
+    print(f"taxa de reenc.  treino {tr.y.mean()*100:.2f}%  val {va.y.mean()*100:.2f}%  "
+          f"teste {te.y.mean()*100:.2f}%")
 
     organ_rate, base = fit_organ_rate(tr)
     for d in (tr, va, te):
         d["orgao_rate"] = d.OrgaoDestinatario.map(organ_rate).fillna(base).astype("float32")
 
-    # LINHA DE BASE: ordenar só pela taxa histórica do órgão -- um groupby, sem
-    # modelo. 76% do ganho do modelo treinado é identidade do órgão; se o
-    # LightGBM não superar essa barra, o entregável honesto é uma tabela de
-    # consulta, não um sistema de aprendizado de máquina.
-    print(f"\n{'=' * 78}\nBASELINE — rank by orgao_rate only (no model)\n{'=' * 78}")
-    baseline_metrics = {}
-    for label, d in (("VALIDATION " + str(VAL_YEAR), va), ("TEST " + str(TEST_YEAR), te)):
-        baseline_metrics[label] = evaluate(f"{label} [baseline: orgao_rate]",
-                                           d.y.to_numpy(), d.orgao_rate.to_numpy())
-    mature_mask = (te["_reg"] <= pd.Timestamp("2026-09-14") - pd.Timedelta(days=MATURITY_DAYS)).to_numpy()
-    baseline_metrics["test_matured"] = evaluate(
-        f"TEST {TEST_YEAR} matured [baseline: orgao_rate]",
-        te.y.to_numpy()[mature_mask], te.orgao_rate.to_numpy()[mature_mask])
+    # Tabelas por órgão embarcadas no artefato: estado do órgão no FIM da janela
+    # de treino+validação, que é o que um pedido novo deve consultar. Exige
+    # reajuste periódico -- ver docs/DECISAO_ESTADO_SOLICITANTE.md.
+    recent = pd.concat([tr, va, te]).sort_values("_reg", kind="stable")
+    last_per_organ = recent.groupby("OrgaoDestinatario").tail(1).set_index("OrgaoDestinatario")
+    organ_movel_90 = last_per_organ["orgao_rate_movel_90d"].astype(float).to_dict()
+    organ_movel_365 = last_per_organ["orgao_rate_movel_365d"].astype(float).to_dict()
 
-    booster_a, maps_a, m_a, cols_a = run_variant(
-        "arrival", CAT_BASE, NUM_BASE, tr, va, te, organ_rate, base)
-    booster_b, maps_b, m_b, cols_b = run_variant(
-        "with_assunto", CAT_BASE + CAT_ASSUNTO, NUM_BASE, tr, va, te, organ_rate, base)
-    # Só diagnóstico: quantifica o quanto a variável vazada de prazo infla o
-    # resultado de vitrine. Nunca implantar esta variante.
-    booster_c, maps_c, m_c, cols_c = run_variant(
-        "LEAKY_with_prazo", CAT_BASE, NUM_BASE + NUM_LEAKY, tr, va, te, organ_rate, base)
+    print(f"\n{'=' * 78}\nLINHA DE BASE — ordenar por orgao_rate, sem modelo\n{'=' * 78}")
+    base_metrics = {
+        "val": evaluate(f"VALIDAÇÃO {VAL_YEAR} [base: orgao_rate]", va.y.to_numpy(),
+                        va.orgao_rate.to_numpy()),
+        "test_matured": evaluate(f"TESTE {TEST_YEAR} maturado [base: orgao_rate]",
+                                 te.y.to_numpy()[mask], te.orgao_rate.to_numpy()[mask]),
+    }
 
-    print(f"\n{'=' * 78}\nLEAKAGE COST OF AssuntoPedido\n{'=' * 78}")
-    for split in ("val", "test"):
-        a, b = m_a[split], m_b[split]
-        print(f"  {split}: PR-AUC {a['pr_auc']:.4f} (arrival) vs {b['pr_auc']:.4f} (with assunto)"
-              f"   delta {100*(b['pr_auc']-a['pr_auc']):+.2f} pp")
-        print(f"        prec@5% {100*a['precision_at']['0.05']:.2f}% vs "
-              f"{100*b['precision_at']['0.05']:.2f}%")
-    print("  NOTE: variant B's advantage is not realisable in production — at arrival")
-    print("        AssuntoPedido is ~60% missing (see docs/VERIFICATION.md).")
+    b_prod, maps_prod, m_prod, cols_prod, pte = run_variant(
+        "arrival", CAT_BASE, NUM_PROD, tr, va, te, mask)
+    _, _, m_assunto, _, _ = run_variant(
+        "with_assunto", CAT_BASE + CAT_ASSUNTO, NUM_PROD, tr, va, te, mask)
+    _, _, m_prazo, _, _ = run_variant(
+        "LEAKY_with_prazo", CAT_BASE, NUM_PROD + NUM_LEAKY, tr, va, te, mask)
 
-    print(f"\n{'=' * 78}\nLEAKAGE COST OF prazo_dias (diagnostic variant C)\n{'=' * 78}")
-    for split in ("val", "test", "test_matured"):
-        if split in m_a and split in m_c:
-            a, c = m_a[split], m_c[split]
-            print(f"  {split:<13}: PR-AUC {a['pr_auc']:.4f} (honest) vs {c['pr_auc']:.4f} (leaky)"
-                  f"   inflation {100*(c['pr_auc']-a['pr_auc']):+.2f} pp")
-            print(f"  {'':<13}  prec@5% {100*a['precision_at']['0.05']:.2f}% vs "
-                  f"{100*c['precision_at']['0.05']:.2f}%")
-    print("  prazo_dias = PrazoAtendimento - DataRegistro. Median 21d unprorrogated vs")
-    print("  31d prorrogated (LAI art.11 par.2 grants exactly +10d), so the deadline is")
-    print("  rewritten post-intake and the feature re-encodes FoiProrrogado.")
+    print(f"\n{'=' * 78}\nCUSTO DOS VAZAMENTOS (variantes diagnósticas)\n{'=' * 78}")
+    for label, mm in (("AssuntoPedido", m_assunto), ("prazo_dias", m_prazo)):
+        for split in ("val", "test_matured"):
+            a, c = m_prod[split], mm[split]
+            print(f"  {label:<14} {split:<13} PR-AUC honesta {a['pr_auc']:.4f} vs "
+                  f"{c['pr_auc']:.4f}   {100*(c['pr_auc']-a['pr_auc']):+.2f} pp")
+    print("  Nenhum dos dois é realizável em produção; ver docs/VERIFICATION.md.")
 
-    fairness(te, booster_a.predict(
-        pd.DataFrame({**{c: encode(te, CAT_BASE, maps_a)[0][c] for c in CAT_BASE},
-                      **{c: pd.to_numeric(te[c], errors="coerce").astype("float32").to_numpy()
-                         for c in NUM_BASE}}, columns=cols_a)), base)
+    print(f"\n{'=' * 78}\nMODELO vs LINHA DE BASE (teste maturado)\n{'=' * 78}")
+    bm, pm = base_metrics["test_matured"], m_prod["test_matured"]
+    print(f"  PR-AUC      base {bm['pr_auc']:.4f}  ->  modelo {pm['pr_auc']:.4f}   "
+          f"({100*(pm['pr_auc']/bm['pr_auc']-1):+.1f}%)")
+    print(f"  precisão@5% base {bm['precision_at']['0.05']:.4f}  ->  modelo "
+          f"{pm['precision_at']['0.05']:.4f}   "
+          f"({100*(pm['precision_at']['0.05']/bm['precision_at']['0.05']-1):+.1f}%)")
 
-    # Artefato de serviço: tudo de que o serviço BentoML precisa, sem pickle.
+    equity_audit(te, pte)
+
+    # Limiar do ponto de operação, calibrado na validação.
+    pva = b_prod.predict(pd.DataFrame(
+        {**{c: encode(va, CAT_BASE, maps_prod)[0][c] for c in CAT_BASE},
+         **{c: pd.to_numeric(va[c], errors="coerce").astype("float32").to_numpy()
+            for c in NUM_PROD}}, columns=cols_prod))
+    threshold = float(np.quantile(pva, 1 - QUEUE_FRAC))
+
     meta = {
         "model_file": "model_arrival.txt",
         "created_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "data_snapshot": SNAP,
+        "data_snapshot": _latest(TEST_YEAR).name.split("_")[0],
         "train_years": TRAIN_YEARS, "val_year": VAL_YEAR, "test_year": TEST_YEAR,
-        "feature_order": cols_a,
+        "maturity_days": MATURITY_DAYS,
+        "feature_order": cols_prod,
         "categorical_features": CAT_BASE,
-        "numeric_features": NUM_BASE,
-        "category_codes": {c: maps_a[c] for c in CAT_BASE},
+        "numeric_features": NUM_PROD,
+        "category_codes": {c: maps_prod[c] for c in CAT_BASE},
+        # --- tabelas embarcadas: conduta de entidade pública, sem dado pessoal
         "organ_rate": organ_rate,
+        "organ_rate_movel_90d": organ_movel_90,
+        "organ_rate_movel_365d": organ_movel_365,
+        "organ_birth": {k: v.strftime("%Y-%m-%d") for k, v in births.items()},
         "base_rate": base,
+        "threshold": round(threshold, 6),
+        "queue_fraction": QUEUE_FRAC,
+        # --- dado pessoal: esperado do chamador, nunca embarcado
+        "caller_supplied_features": NUM_SOLICITANTE,
+        "caller_supplied_default": -1,
+        "caller_supplied_rationale": "docs/DECISAO_ESTADO_SOLICITANTE.md",
         "excluded_leakage_features": [
             "Situacao", "FoiProrrogado", "DataResposta", "Decisao", "EspecificacaoDecisao",
             "DetalhamentoDecisao", "MotivoNegativaAcesso", "PrazoRestricaoAcesso",
-            "AssuntoPedido", "SubAssuntoPedido", "Tag",
+            "AssuntoPedido", "SubAssuntoPedido", "Tag", "PrazoAtendimento", "prazo_dias",
+            "protocolo_seq",
         ],
-        "metrics": {"arrival": m_a, "with_assunto": m_b},
+        "metrics": {"arrival": m_prod, "with_assunto": m_assunto,
+                    "LEAKY_with_prazo": m_prazo, "baseline_orgao_rate": base_metrics},
     }
     (ART / "preprocessor.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
-    sz = (ART / "preprocessor.json").stat().st_size / 1024
-    print(f"\nsaved preprocessor.json ({sz:.0f} KB)")
-    print(f"TOTAL WALL CLOCK: {time.perf_counter() - t0:.1f}s")
+    print(f"\ngravado preprocessor.json ({(ART / 'preprocessor.json').stat().st_size/1024:.0f} KB)")
+    print(f"limiar da fila de {QUEUE_FRAC*100:.0f}%: {threshold:.6f}")
+    print(f"TEMPO TOTAL: {time.perf_counter() - t0:.1f}s")
 
 
 if __name__ == "__main__":

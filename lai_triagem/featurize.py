@@ -2,8 +2,17 @@
 
 Fonte única da verdade, para que o serviço não possa divergir do modelo
 treinado. Depende apenas de pandas/numpy mais o acompanhante JSON — sem
-`pickle`, logo não há acoplamento de versão de scikit-learn ou pandas no
-carregamento.
+`pickle`, logo não há acoplamento de versão no carregamento.
+
+As variáveis separam-se por natureza do titular do dado, conforme
+docs/DECISAO_ESTADO_SOLICITANTE.md:
+
+  * lado do ÓRGÃO   — embarcado no artefato (conduta de entidade pública):
+                      orgao_rate, orgao_rate_movel_90d/_365d, idade do órgão
+  * lado do SOLICITANTE — FORNECIDO PELO CHAMADOR, nunca retido. São dado
+                      pessoal; o Fala.BR já os possui. Ausentes, valem -1, que
+                      o LightGBM trata como faltante, exatamente como no
+                      treinamento para solicitante anonimizado.
 """
 
 from __future__ import annotations
@@ -14,14 +23,16 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# Campos que só existem DEPOIS da triagem ou depois da resposta. Rejeitados na
-# entrada. Cada item foi estabelecido empiricamente — ver docs/VERIFICATION.md.
+# Campos que só existem DEPOIS da triagem ou da resposta. Rejeitados na entrada.
+# Cada item foi estabelecido empiricamente — ver docs/CAMPOS_POST_HOC.md.
 LEAKAGE_FIELDS = {
     "Situacao", "FoiProrrogado", "FoiReencaminhado", "DataResposta", "Decisao",
     "EspecificacaoDecisao", "DetalhamentoDecisao", "MotivoNegativaAcesso",
     "PrazoRestricaoAcesso", "AssuntoPedido", "SubAssuntoPedido", "Tag",
     # reescrito na prorrogação: +10 dias pelo art. 11 §2 da LAI
-    "PrazoAtendimento",
+    "PrazoAtendimento", "prazo_dias",
+    # codifica a unidade registradora, não um sequencial neutro (H5)
+    "ProtocoloPedido", "protocolo_seq",
 }
 
 
@@ -35,7 +46,14 @@ class Preprocessor:
         self.numeric: list[str] = meta["numeric_features"]
         self.codes: dict[str, dict[str, int]] = meta["category_codes"]
         self.organ_rate: dict[str, float] = meta["organ_rate"]
+        self.organ_movel_90: dict[str, float] = meta.get("organ_rate_movel_90d", {})
+        self.organ_movel_365: dict[str, float] = meta.get("organ_rate_movel_365d", {})
+        self.organ_birth: dict[str, str] = meta.get("organ_birth", {})
         self.base_rate: float = meta["base_rate"]
+        self.threshold: float = meta.get("threshold", 0.1691)
+        # Nomes que o chamador deve informar; ausentes viram o valor padrão.
+        self.caller_features: list[str] = meta.get("caller_supplied_features", [])
+        self.caller_default: float = float(meta.get("caller_supplied_default", -1))
 
     @classmethod
     def from_json(cls, path: str | Path) -> "Preprocessor":
@@ -47,7 +65,7 @@ class Preprocessor:
         if bad:
             raise ValueError(
                 f"post-hoc field(s) supplied, refusing to score: {sorted(bad)}. "
-                "These are unavailable when a request arrives; see docs/VERIFICATION.md."
+                "These are unavailable when a request arrives; see docs/CAMPOS_POST_HOC.md."
             )
 
     def transform(self, payload: dict) -> pd.DataFrame:
@@ -65,6 +83,12 @@ class Preprocessor:
                 idade = np.nan
 
         organ = p.get("OrgaoDestinatario")
+        # Idade do órgão: dias entre o registro e a primeira aparição do órgão.
+        idade_orgao = np.nan
+        born = self.organ_birth.get(organ)
+        if born and pd.notna(reg):
+            idade_orgao = float((reg - pd.Timestamp(born)).days)
+
         derived = {
             "reg_month": reg.month if pd.notna(reg) else np.nan,
             "reg_dow": reg.dayofweek if pd.notna(reg) else np.nan,
@@ -72,8 +96,15 @@ class Preprocessor:
             "idade": idade,
             # Órgão não visto no treino recai na taxa-base da coorte.
             "orgao_rate": float(self.organ_rate.get(organ, self.base_rate)),
+            "orgao_rate_movel_90d": float(self.organ_movel_90.get(organ, self.base_rate)),
+            "orgao_rate_movel_365d": float(self.organ_movel_365.get(organ, self.base_rate)),
+            "dias_desde_primeiro_pedido_do_orgao": idade_orgao,
             "uf_match": int((p.get("UF_sol") or "~") == (p.get("UF") or "!")),
         }
+        # Histórico do solicitante: só do chamador. Nunca lido de tabela interna.
+        for c in self.caller_features:
+            v = p.get(c)
+            derived[c] = self.caller_default if v is None else float(v)
 
         row: dict[str, object] = {}
         for c in self.categorical:
@@ -85,8 +116,13 @@ class Preprocessor:
         return pd.DataFrame([row], columns=self.feature_order).astype("float64")
 
     def organ_is_known(self, organ: str | None) -> bool:
-        """Se falso, o escore é apenas a taxa-base e não deve ser lido como sinal."""
+        """Se falso, o escore recai na taxa-base e não deve ser lido como sinal."""
         return organ in self.organ_rate
+
+    def history_supplied(self, payload: dict) -> bool:
+        """O chamador informou algum contador de histórico? Se não, o modelo
+        opera degradado — mensurável, mas silencioso se não for exposto."""
+        return any(payload.get(c) is not None for c in self.caller_features)
 
 
 def risk_label(prob: float, threshold: float) -> str:

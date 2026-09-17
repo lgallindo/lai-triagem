@@ -15,24 +15,45 @@ aos pedidos com maior chance de roteamento incorreto.
 ## Resultado principal
 
 Conjunto de teste 2026 maturado (registrados com ≥60 dias de antecedência do
-retrato de 2026-09-14), treino em 2022–2024, validação em 2025. Taxa-base 5,75%.
+retrato), treino em 2022–2024, validação em 2025. Taxa-base 5,75%.
+Modelo de produção: **30 variáveis, 98 árvores, 1,7 s de ajuste**.
 
 | Escore | ROC-AUC | PR-AUC | prec@1% | prec@5% | prec@10% |
 |---|---|---|---|---|---|
-| Consulta histórica por órgão (sem modelo) | 0,7434 | 0,1641 | 36,12% | **24,79%** | 17,79% |
-| LightGBM, 161 árvores | 0,7471 | **0,1723** | **36,59%** | 24,44% | **18,70%** |
+| Consulta histórica por órgão (sem modelo) | 0,7434 | 0,1641 | 36,12% | 24,79% | 17,79% |
+| **LightGBM, 98 árvores** | **0,8001** | **0,2556** | **52,03%** | **30,99%** | **23,28%** |
+| Ganho relativo | — | **+56%** | **+44%** | **+25%** | **+31%** |
 
-Ganho real de **4,3× na fila dos 5% mais arriscados** — operacionalmente útil,
-mas a vantagem do modelo sobre a consulta simples está dentro do ruído, e ele
-**perde** em precisão@5%. Cerca de 76% do ganho do modelo é identidade do órgão.
+**Ganho de 5,4× na fila dos 5% mais arriscados.** O modelo supera com folga a
+consulta simples — o que **não era verdade** nas versões anteriores deste
+repositório, e passou a ser depois de duas descobertas:
 
-**Duas variáveis mudam isso.** Acrescentando o histórico do solicitante
-(`n_pedidos_previos`, `prev_reenc_solicitante`), a precisão@5% sobe para
-**27,36%** e a PR-AUC para **0,2025** (+16,5%), superando a consulta por órgão
-pela primeira vez. Solicitantes de primeira viagem são reencaminhados a 8,33%
-contra 5,35% dos veteranos com 50+ pedidos: **quem já usou a LAI aprende qual
-órgão endereçar.** Exige estado por solicitante na inferência, que o serviço
-atual não mantém — ver [`docs/VERIFICATION.md`](docs/VERIFICATION.md).
+- **A experiência do solicitante é específica do órgão.**
+  `n_pedidos_previos_neste_orgao` vale 6,66% do ganho contra 1,08% do agregado
+  `n_pedidos_previos`. Estreantes são reencaminhados a 8,33%, veteranos com 50+
+  pedidos a 5,35%: quem já usou a LAI aprende qual órgão endereçar.
+- **A taxa por órgão precisa ser móvel.** `orgao_rate_movel_90d` é a segunda
+  variável mais importante (16,13%). A tabela estática ajustada em 2022–2024
+  estava desatualizada — a taxa-base caiu de 8,03% para 5,23% no período.
+
+O efeito é visível numa única requisição. Mesmo pedido, mesmo órgão:
+
+```
+estreante (0 pedidos)            P=0,2965  ALTO RISCO
+veterano (80 pedidos, 12 aqui)   P=0,0914  BAIXO RISCO
+```
+
+## Contrato de dados: o que o chamador informa
+
+As sete variáveis de histórico do solicitante são **dado pessoal** e por decisão
+explícita **não são embarcadas no artefato** — o chamador as informa, e o
+Fala.BR já as possui. O artefato contém apenas tabelas de conduta de **órgãos**
+(entidades públicas). Racional completo em
+[`docs/DECISAO_ESTADO_SOLICITANTE.md`](docs/DECISAO_ESTADO_SOLICITANTE.md).
+
+Omitir o histórico é permitido: os campos valem `-1`, o `LightGBM` os trata como
+faltantes e `/score` devolve `historico_informado: false` para que a operação
+degradada não passe silenciosa.
 
 ---
 
@@ -96,22 +117,30 @@ O serviço sobe em `http://localhost:3000`. A documentação interativa fica em
 
 ## Passo 5 — primeira chamada
 
+Com o histórico do solicitante informado pelo chamador (precisão plena):
+
 ```bash
-curl -sS -X POST http://localhost:3000/score -H 'Content-Type: application/json' -d '{"pedido":{"OrgaoDestinatario":"CC-PR – Casa Civil da Presidência da República","DataRegistro":"15/09/2026","Escolaridade":"Ensino Fundamental","UF_sol":"PE"}}'
+curl -sS -X POST http://localhost:3000/score -H 'Content-Type: application/json' -d '{"pedido":{"OrgaoDestinatario":"CC-PR – Casa Civil da Presidência da República","DataRegistro":"15/09/2026","Escolaridade":"Ensino Fundamental","UF_sol":"PE","n_pedidos_previos":80,"prev_reenc_solicitante":3,"prev_reenc_rate_solicitante":0.0375,"n_pedidos_previos_neste_orgao":12,"prev_reenc_neste_orgao":0,"n_orgaos_distintos_previos":14,"dias_desde_ultimo_pedido":5}}'
 ```
 
 Resposta:
 
 ```json
 {
-  "probabilidade_reencaminhamento": 0.478189,
-  "alerta": "ALTO RISCO",
-  "threshold": 0.1691,
+  "probabilidade_reencaminhamento": 0.076869,
+  "alerta": "BAIXO RISCO",
+  "threshold": 0.155738,
   "orgao_conhecido": true,
   "orgao_rate_historica": 0.478643,
-  "base_rate_coorte": 0.080268
+  "orgao_rate_movel_90d": 0.243032,
+  "base_rate_coorte": 0.080268,
+  "historico_informado": true
 }
 ```
+
+Sem o histórico, a mesma requisição devolve `0.353582` com
+`"historico_informado": false` — quase cinco vezes mais alto. O órgão é o mesmo;
+a diferença é toda o que se sabe sobre o solicitante.
 
 ## Passo 6 — comparar com a linha de base
 
@@ -171,14 +200,37 @@ resto é opcional e ausência é tratada como valor faltante.
 | `Municipio_sol` | Solicitantes | categórico | **11,5%** | Município de residência — terceiro sinal mais forte |
 | `DataNascimento` | Solicitantes | data | deriva `idade` (2,5%) | Idade na data do registro; descartada fora de 10–110 anos |
 
-## Variáveis derivadas
+## Variáveis derivadas — lado do órgão (embarcadas no artefato)
+
+Conduta de entidade pública; sem dado pessoal. Reajustadas a cada retreinamento.
 
 | Derivada | Fórmula | Ganho |
 |---|---|---|
-| `orgao_rate` | taxa histórica suavizada de reencaminhamento do órgão, ajustada **só nos anos de treino** (prior 50 × taxa-base) | **48,1%** |
-| `idade` | `DataRegistro − DataNascimento`, em anos | 2,5% |
-| `reg_month`, `reg_dow`, `reg_day` | componentes de `DataRegistro` | 3,3% somados |
+| `orgao_rate` | taxa histórica suavizada do órgão, ajustada **só nos anos de treino** (prior 50 × taxa-base) | **39,35%** |
+| `orgao_rate_movel_90d` | taxa em janela móvel de 90 d, **estritamente anterior** à data do pedido | **16,13%** |
+| `orgao_rate_movel_365d` | idem, 365 d | 3,62% |
+| `dias_desde_primeiro_pedido_do_orgao` | idade do órgão; datada de 2012 em diante | 1,32% |
+| `idade` | `DataRegistro − DataNascimento`, em anos | baixo |
+| `reg_month`, `reg_dow`, `reg_day` | componentes de `DataRegistro` | baixo |
 | `uf_match` | `UF_sol == UF` | baixo |
+
+## Variáveis de histórico — informadas pelo chamador
+
+Dado pessoal; **não embarcadas**. Todas opcionais, padrão `-1`.
+
+| Campo | Significado | Ganho |
+|---|---|---|
+| `n_pedidos_previos_neste_orgao` | pedidos anteriores deste solicitante **a este órgão** | **6,66%** |
+| `prev_reenc_rate_solicitante` | razão entre reencaminhados e total anteriores | 4,44% |
+| `prev_reenc_neste_orgao` | reencaminhamentos anteriores deste solicitante neste órgão | 3,91% |
+| `dias_desde_ultimo_pedido` | recência da última interação | 1,41% |
+| `n_pedidos_previos` | total de pedidos anteriores (agregado) | 1,08% |
+| `n_orgaos_distintos_previos` | amplitude: quantos órgãos distintos já acionou | 0,98% |
+| `prev_reenc_solicitante` | contagem de reencaminhamentos anteriores | baixo |
+
+Todas calculadas no treino com soma acumulada **deslocada**, de modo que a linha
+corrente nunca vê a si mesma nem o futuro. Solicitante anonimizado
+(`IdSolicitante == '0'`, 16,9% das linhas) não acumula histórico.
 
 # Campos excluídos, e por quê
 
@@ -242,6 +294,7 @@ These are unavailable when a request arrives; see docs/VERIFICATION.md.
 
 | Caminho | Papel |
 |---|---|
+| [`docs/DECISAO_ESTADO_SOLICITANTE.md`](docs/DECISAO_ESTADO_SOLICITANTE.md) | Onde vive o histórico do solicitante e por quê — decisão de proteção de dados |
 | [`docs/CAMPOS_POST_HOC.md`](docs/CAMPOS_POST_HOC.md) | O que é campo *post hoc*, por que não serve para treinar, e o protocolo de identificação |
 | [`docs/TREINAMENTO.md`](docs/TREINAMENTO.md) | Procedimento de treinamento reproduzível e configuração do LightGBM |
 | [`docs/VERIFICATION.md`](docs/VERIFICATION.md) | Auditoria de vazamento e viabilidade — **comece aqui** |
@@ -268,9 +321,12 @@ documentação e os comentários estão em pt_BR.*
 - Variáveis demográficas somam ~5% do ganho; 76% é identidade do órgão.
 - Rótulos de 2026 sofrem **censura à direita** (5,75% de positivos entre os
   maturados contra 3,60% nos recentes).
-- `orgao_rate` é uma tabela estática ajustada nos anos de treino; exige reajuste
-  periódico.
-- O limiar 0,1691 é ponto de operação de fila, não probabilidade calibrada.
+- As tabelas por órgão são um retrato do fim da janela de dados; exigem reajuste
+  periódico, sem o qual `orgao_rate_movel_90d` envelhece e perde valor.
+- 45,8% das linhas não têm histórico de solicitante aproveitável (16,9%
+  anonimizadas, 28,9% de quem pediu uma vez só), então o ganho vem de pouco
+  mais da metade do volume.
+- O limiar 0,155738 é ponto de operação da fila de 10%, não probabilidade calibrada.
 
 # Dados e licença
 
