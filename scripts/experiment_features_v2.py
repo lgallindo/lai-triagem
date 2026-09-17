@@ -53,6 +53,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.train import (  # noqa: E402
     build_features as train_build_features,
     organ_birth_table as train_organ_birth_table,
+    load_cohort as train_load_cohort,
     organ_rolling as train_organ_rolling,
     precision_at_k,
 )
@@ -183,69 +184,30 @@ def smoothed_rate(train, keys, prior=50.0):
 
 
 def build(df, births):
-    reg = pd.to_datetime(df.DataRegistro, format="%d/%m/%Y", errors="coerce")
-    nasc = pd.to_datetime(df.DataNascimento, format="%d/%m/%Y", errors="coerce")
-    df = df.assign(
-        _reg=reg,
-        reg_month=reg.dt.month, reg_dow=reg.dt.dayofweek, reg_day=reg.dt.day,
-        idade=((reg - nasc).dt.days / 365.25).round(1),
-        uf_match=(df.UF_sol.fillna("~") == df.UF.fillna("!")).astype("int8"),
-        y=df.FoiReencaminhado.eq("Sim").astype("int8"),
-    )
-    df.loc[(df.idade < 10) | (df.idade > 110), "idade"] = np.nan
-    df = df[df.Situacao.ne("Encaminhada por Outro Órgão")].copy()
-    df = df.sort_values("_reg", kind="stable").reset_index(drop=True)
+    """Delega o núcleo a `train.build_features` e acrescenta só os extras.
 
-    # ---------------- Tier 1: histórico do solicitante (ver defeito no topo) ---
-    # Solicitante anonimizado ('0') não acumula histórico: não é uma pessoa.
-    real = df.IdSolicitante.ne("0")
-    sub = df.loc[real]
-    g_sol = sub.groupby("IdSolicitante", sort=False)
+    Fix 3, parte estrutural: antes este script tinha a SUA PRÓPRIA versão da
+    featurização de histórico -- a versão vazada, de antes do Fix 1+2. Corrigir
+    só a chave de seleção teria sido cosmético: a ablação continuaria medindo
+    variáveis com vazamento do mesmo dia e desfecho imaturo. Agora existe um
+    núcleo e os extras experimentais vêm por cima.
+    """
+    df = train_build_features(df, births)
 
-    n_prev = g_sol.cumcount()
-    prev_reenc = g_sol.y.cumsum() - sub.y
-    g_pair = sub.groupby(["IdSolicitante", "OrgaoDestinatario"], sort=False)
-    n_prev_org = g_pair.cumcount()
-    prev_reenc_org = g_pair.y.cumsum() - sub.y
-    first_pair = (~sub.duplicated(["IdSolicitante", "OrgaoDestinatario"])).astype("int8")
-    n_distinct = first_pair.groupby(sub.IdSolicitante).cumsum() - first_pair
-    dias_ult = g_sol._reg.diff().dt.days
-
-    for col, val in [
-        ("n_pedidos_previos", n_prev), ("prev_reenc_solicitante", prev_reenc),
-        ("n_pedidos_previos_neste_orgao", n_prev_org),
-        ("prev_reenc_neste_orgao", prev_reenc_org),
-        ("n_orgaos_distintos_previos", n_distinct),
-        ("dias_desde_ultimo_pedido", dias_ult),
-    ]:
-        df[col] = np.nan
-        df.loc[real, col] = val.astype("float32")
-    # Taxa prévia: só definida com pelo menos um pedido anterior.
-    df["prev_reenc_rate_solicitante"] = (
-        df.prev_reenc_solicitante / df.n_pedidos_previos.where(df.n_pedidos_previos > 0)
-    ).astype("float32")
-    # -1 marca "sem histórico" de forma distinguível de zero.
-    for c in G2 + GROUPS["T1_experiencia"]:
-        df[c] = df[c].fillna(-1).astype("float32")
-
-    # ---------------- Tier 2: dinâmica do órgão -------------------------------
-    roll = organ_rolling(df)
-    base_all = df.y.mean()
-    for w in (90, 365):
-        cnt, sm = roll[f"cnt_{w}"], roll[f"sum_{w}"]
-        df[f"orgao_rate_movel_{w}d"] = np.where(cnt > 0, sm / np.maximum(cnt, 1), base_all)
-    df["orgao_rate_tendencia"] = (df.orgao_rate_movel_90d - df.orgao_rate_movel_365d).astype("float32")
-    df["orgao_volume_movel"] = roll["cnt_90"].astype("float32")
-    born = df.OrgaoDestinatario.map(births)
-    df["dias_desde_primeiro_pedido_do_orgao"] = (df._reg - born).dt.days.astype("float32")
-
-    # ---------------- Tier 3 ---------------------------------------------------
+    # Extras que só existem nesta ablação.
     df["mesma_regiao"] = (
         df.UF_sol.map(REGIAO).fillna("?") == df.UF.map(REGIAO).fillna("!")
     ).astype("int8")
-    # Sequencial anual do NUP: posição na fila do órgão naquele ano.
+    # Sequencial anual do NUP -- em quarentena por H5, mantido para o
+    # diagnóstico poder continuar a medi-lo.
     df["protocolo_seq"] = pd.to_numeric(
         df.ProtocoloPedido.str.slice(5, 11), errors="coerce").astype("float32")
+
+    # Tendência e volume derivam das MESMAS janelas defasadas do núcleo.
+    roll = train_organ_rolling(df)
+    df["orgao_rate_tendencia"] = (
+        df.orgao_rate_movel_90d - df.orgao_rate_movel_365d).astype("float32")
+    df["orgao_volume_movel"] = roll["cnt_90"].astype("float32")
     return df
 
 

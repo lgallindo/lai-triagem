@@ -19,16 +19,23 @@ aos pedidos com maior chance de roteamento incorreto.
 
 Conjunto de teste 2026 maturado (registrados com ≥60 dias de antecedência do
 retrato), treino em 2022–2024, validação em 2025. Taxa-base 5,75%.
-Modelo de produção: **31 variáveis, 52 árvores, ~2 s de ajuste**.
+Contagens em [`docs/METRICAS.md`](docs/METRICAS.md); contagens em [`docs/METRICAS.md`](docs/METRICAS.md).
 
-| Escore | ROC-AUC | PR-AUC | prec@1% | prec@5% | prec@10% |
-|---|---|---|---|---|---|
-| Consulta histórica por órgão (sem modelo) | 0,7434 | 0,1641 | 35,67% | **24,80%** | 17,86% |
-| LightGBM, 31 variáveis | 0,7653 | **0,1836** | 35,19% | 24,67% | **19,81%** |
-| Diferença | — | +11,9% | −1,3% | **−0,5%** | +10,9% |
+Números sempre correntes em [`docs/METRICAS.md`](docs/METRICAS.md), gerado pelo
+treinamento. No teste 2026 maturado:
 
-**O modelo NÃO supera a consulta por órgão em precisão@5%.** Ganha em PR-AUC e
-em precisão@10%, perde em @1% e @5%. A vantagem está dentro do ruído.
+| Escore | PR-AUC | prec@5% |
+|---|---|---|
+| Consulta histórica por órgão (sem modelo) | 0,1641 | **24,80%** |
+| LightGBM (ver METRICAS.md) | 0,1696 | 24,34% |
+
+**O modelo NÃO supera a consulta por órgão na métrica primária.** Perde 1,8% em
+precisão@5% — a fila que o produto de fato entrega. Ganha pouco em PR-AUC.
+
+A explicação está no ganho por variável: `orgao_rate` 52,26% +
+`OrgaoDestinatario` 22,23% + as duas taxas móveis 10,27% somam **84,8% de
+identidade do órgão**. Todo o histórico do solicitante soma menos de 9%. O
+modelo é, essencialmente, a tabela de consulta com enfeites.
 
 > ### Este número já foi muito melhor, e era vazamento
 >
@@ -57,6 +64,24 @@ Efeito colateral notável da defasagem: `orgao_rate_movel_90d` caiu de 16,50%
 para **2,81%** do ganho, enquanto a janela de 365 dias subiu para **10,20%**.
 Defasada em 60 dias, uma janela de 90 dias fica quase toda obsoleta — perde
 exatamente a atualidade que a justificava.
+
+## Sem dado demográfico algum
+
+A partir da confirmação de **H6**, o modelo **não usa nenhuma variável
+demográfica**. A tabela `Solicitantes` da CGU é um **retrato atual** do cadastro,
+não o perfil na abertura do pedido: zero mudanças em nove campos para 22.963
+pessoas ao longo de cinco anos, e 100% de registros idênticos entre 2022 e 2026.
+As linhas antigas carregavam, portanto, um perfil *futuro*.
+
+Remover custou nada (PR-AUC do teste maturado até subiu 0,17 pp) e trouxe três
+ganhos: o modelo caiu para 22 variáveis; a requisição **não pede mais
+escolaridade, profissão, gênero nem residência**; e a auditoria de equidade
+ficou mais forte, porque agora mede disparidade numa característica que o modelo
+**não observa** — qualquer viés vem da estrutura do problema, não do ajuste.
+
+Com isso, o único dado pessoal que o serviço recebe são **contadores de
+histórico**, e o artefato continua sem retê-los. Ver
+[`docs/DECISAO_ESTADO_SOLICITANTE.md`](docs/DECISAO_ESTADO_SOLICITANTE.md).
 
 ## Contrato de dados: o que o chamador informa
 

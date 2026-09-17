@@ -61,9 +61,10 @@ QUEUE_FRAC = 0.10  # ponto de operação: fila dos 10% mais arriscados
 # variável em relação ao que foi treinado.
 PRIOR_MOVEL = 20.0
 
-PED_COLS = ["IdPedido", "Esfera", "UF", "Municipio", "OrgaoDestinatario", "Situacao",
-            "DataRegistro", "PrazoAtendimento", "FoiReencaminhado", "FormaResposta",
-            "OrigemSolicitacao", "IdSolicitante", "AssuntoPedido", "SubAssuntoPedido"]
+PED_COLS = ["IdPedido", "ProtocoloPedido", "Esfera", "UF", "Municipio",
+            "OrgaoDestinatario", "Situacao", "DataRegistro", "PrazoAtendimento",
+            "FoiReencaminhado", "FormaResposta", "OrigemSolicitacao",
+            "IdSolicitante", "AssuntoPedido", "SubAssuntoPedido"]
 SOL_COLS = ["IdSolicitante", "TipoDemandante", "DataNascimento", "Genero", "Escolaridade",
             "Profissao", "TipoPessoaJuridica", "Pais", "UF", "Municipio"]
 
@@ -99,6 +100,22 @@ CALLER_INPUTS = [
 NUM_ORGAO = ["orgao_rate_movel_90d", "orgao_rate_movel_365d",
              "dias_desde_primeiro_pedido_do_orgao"]
 NUM_PROD = NUM_BASE + NUM_SOLICITANTE + NUM_DERIVED_CALLER + NUM_ORGAO
+
+# Afetados por H6 -- `Solicitantes` e um RETRATO ATUAL, nao o perfil na abertura:
+# zero mudancas em nove campos para 22.963 pessoas ao longo de cinco anos, e
+# 100% de registros identicos entre 2022 e 2026. Nao e vazamento de alvo (o
+# modelo nao le o rotulo), mas as linhas antigas carregam perfil FUTURO --
+# descasamento de tempo de medicao nas covariaveis. `idade` fica fora da lista:
+# deriva de DataNascimento, que e invariante por natureza.
+CAT_H6 = ["Genero", "Escolaridade", "Profissao", "TipoDemandante",
+          "TipoPessoaJuridica", "Pais", "UF_sol", "Municipio_sol"]
+NUM_H6 = ["uf_match"]
+
+# CONJUNTO DE PRODUÇÃO FINAL -- sem os afetados por H6.
+# Custo medido: nulo (PR-AUC do teste maturado 0,1836 com contra 0,1853 sem).
+# Com custo nulo e defeito metodológico real, remover é a escolha correta.
+CAT_PROD = [c for c in CAT_BASE if c not in CAT_H6]
+NUM_PROD_FINAL = [c for c in NUM_PROD if c not in NUM_H6]
 
 NUM_LEAKY = ["prazo_dias"]
 CAT_ASSUNTO = ["AssuntoPedido", "SubAssuntoPedido"]
@@ -494,6 +511,9 @@ def fit_calibration(y_val, p_val, y_test, p_test, n_grid=1000):
 
 
 def equity_audit(te, p):
+    """A partir do Fix 5, `Escolaridade` NÃO é variável do modelo (H6). Auditar
+    por ela ficou mais forte: mede disparidade numa característica que o modelo
+    não observa, logo qualquer viés vem da estrutura do problema, não do ajuste."""
     print(f"\n{'=' * 78}\nAUDITORIA DE EQUIDADE — composição da fila de {QUEUE_FRAC*100:.0f}% (TAP 6.1)\n{'=' * 78}")
     k = int(round(QUEUE_FRAC * len(te)))
     flagged = te.iloc[np.argsort(-p)[:k]]
@@ -623,11 +643,15 @@ def main():
     }
 
     b_prod, maps_prod, m_prod, cols_prod, pte = run_variant(
-        "arrival", CAT_BASE, NUM_PROD, tr, va, te, mask)
+        "arrival", CAT_PROD, NUM_PROD_FINAL, tr, va, te, mask)
     _, _, m_assunto, _, _ = run_variant(
         "with_assunto", CAT_BASE + CAT_ASSUNTO, NUM_PROD, tr, va, te, mask)
     _, _, m_prazo, _, _ = run_variant(
         "LEAKY_with_prazo", CAT_BASE, NUM_PROD + NUM_LEAKY, tr, va, te, mask)
+    # Espelho invertido: agora a PRODUÇÃO é sem demografia, e a diagnóstica
+    # mede o que se ganharia mantendo os campos medidos no retrato (H6).
+    _, _, m_semdem, _, _ = run_variant(
+        "COM_demografia_H6", CAT_BASE, NUM_PROD, tr, va, te, mask)
 
     print(f"\n{'=' * 78}\nCUSTO DOS VAZAMENTOS (variantes diagnósticas)\n{'=' * 78}")
     for label, mm in (("AssuntoPedido", m_assunto), ("prazo_dias", m_prazo)):
@@ -636,6 +660,16 @@ def main():
             print(f"  {label:<14} {split:<13} PR-AUC honesta {a['pr_auc']:.4f} vs "
                   f"{c['pr_auc']:.4f}   {100*(c['pr_auc']-a['pr_auc']):+.2f} pp")
     print("  Nenhum dos dois é realizável em produção; ver docs/VERIFICATION.md.")
+
+    print(f"\n{'=' * 78}\nH6 -- O QUE SE GANHARIA MANTENDO AS DEMOGRÁFICAS\n{'=' * 78}")
+    for split in ("val", "test_matured"):
+        a, c = m_prod[split], m_semdem[split]
+        print(f"  {split:<13} PR-AUC produção (sem) {a['pr_auc']:.4f} vs com "
+              f"{c['pr_auc']:.4f}   {100*(c['pr_auc']-a['pr_auc']):+.2f} pp")
+        print(f"  {'':<13} prec@5% com {100*a['precision_at']['0.05']:.2f}% vs "
+              f"sem {100*c['precision_at']['0.05']:.2f}%")
+    print("  Ganho nulo ou negativo: a remoção não custa desempenho e corrige o")
+    print("  descasamento de tempo de medição. Produção fica sem demografia.")
 
     print(f"\n{'=' * 78}\nMODELO vs LINHA DE BASE (teste maturado)\n{'=' * 78}")
     bm, pm = base_metrics["test_matured"], m_prod["test_matured"]
@@ -649,16 +683,16 @@ def main():
 
     # Limiar do ponto de operação, calibrado na validação.
     pva = b_prod.predict(pd.DataFrame(
-        {**{c: encode(va, CAT_BASE, maps_prod)[0][c] for c in CAT_BASE},
+        {**{c: encode(va, CAT_PROD, maps_prod)[0][c] for c in CAT_PROD},
          **{c: pd.to_numeric(va[c], errors="coerce").astype("float32").to_numpy()
-            for c in NUM_PROD}}, columns=cols_prod))
+            for c in NUM_PROD_FINAL}}, columns=cols_prod))
     threshold = float(np.quantile(pva, 1 - QUEUE_FRAC))
 
     calib = fit_calibration(va.y.to_numpy(), pva, te.y.to_numpy()[mask],
                             b_prod.predict(pd.DataFrame(
-                                {**{c: encode(te, CAT_BASE, maps_prod)[0][c] for c in CAT_BASE},
+                                {**{c: encode(te, CAT_PROD, maps_prod)[0][c] for c in CAT_PROD},
                                  **{c: pd.to_numeric(te[c], errors="coerce").astype("float32").to_numpy()
-                                    for c in NUM_PROD}}, columns=cols_prod))[mask])
+                                    for c in NUM_PROD_FINAL}}, columns=cols_prod))[mask])
 
     meta = {
         "model_file": "model_arrival.txt",
@@ -666,10 +700,13 @@ def main():
         "data_snapshot": _latest(TEST_YEAR).name.split("_")[0],
         "train_years": TRAIN_YEARS, "val_year": VAL_YEAR, "test_year": TEST_YEAR,
         "maturity_days": MATURITY_DAYS,
+        # Derivadas da variante que REALMENTE treinou o modelo, nunca fixas.
+        # Fixá-las produziu artefato declarando 31 variáveis para um modelo de
+        # 22, e o serviço quebrava no primeiro predict.
         "feature_order": cols_prod,
-        "categorical_features": CAT_BASE,
-        "numeric_features": NUM_PROD,
-        "category_codes": {c: maps_prod[c] for c in CAT_BASE},
+        "categorical_features": CAT_PROD,
+        "numeric_features": NUM_PROD_FINAL,
+        "category_codes": {c: maps_prod[c] for c in CAT_PROD},
         # --- tabelas embarcadas: conduta de entidade pública, sem dado pessoal
         "organ_rate": organ_rate,
         "organ_rate_movel_90d": organ_movel_90,
@@ -695,8 +732,16 @@ def main():
             "protocolo_seq",
         ],
         "metrics": {"arrival": m_prod, "with_assunto": m_assunto,
-                    "LEAKY_with_prazo": m_prazo, "baseline_orgao_rate": base_metrics},
+                    "LEAKY_with_prazo": m_prazo, "COM_demografia_H6": m_semdem,
+                    "baseline_orgao_rate": base_metrics},
+        "h6_affected_features": CAT_H6 + NUM_H6,
     }
+    # Guarda-corpo: artefato incoerente com o modelo e artefato invalido.
+    assert len(meta["feature_order"]) == b_prod.num_feature(), (
+        f"artefato declara {len(meta['feature_order'])} variaveis, "
+        f"modelo treinou com {b_prod.num_feature()}")
+    assert set(meta["categorical_features"]) | set(meta["numeric_features"]) \
+        == set(meta["feature_order"]), "listas do artefato nao cobrem feature_order"
     (ART / "preprocessor.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
     write_metrics_doc(meta, b_prod, base_metrics)
     print(f"\ngravado preprocessor.json ({(ART / 'preprocessor.json').stat().st_size/1024:.0f} KB)")

@@ -31,6 +31,7 @@ de exclusão de campos, permanecem válidas. Ver
 | H3 | `prazo_dias` é variável de chegada | **REFUTADA — é vazamento, excluído** | `verify_h3_prazo.py` |
 | H4 | Variáveis demográficas do solicitante são utilizáveis | **MAJORITARIAMENTE INDISPONÍVEIS** | `verify_h3_prazo.py` |
 | H5 | `protocolo_seq` (fatia do `ProtocoloPedido`) é variável de chegada | **REFUTADA — é vazamento, em quarentena** | `verify_h5_protocolo.py` |
+| H6 | `Solicitantes` traz o perfil na abertura do pedido | **REFUTADA — é retrato atual; demográficas removidas** | `verify_h6_solicitantes.py` |
 
 ## H1 — `AssuntoPedido` é saída da triagem
 
@@ -333,3 +334,33 @@ meio do trabalho e um prefixo fixo perdia os arquivos antigos em silêncio):
 nascido de reorganização administrativa tem fronteira de competência obscura, e
 o cidadão erra mais. Como variável marginal rende pouco (+0,0004), porque
 `orgao_rate` já absorve o efeito, mas é explicação causal publicável.
+
+## H6 — `Solicitantes` é um retrato atual, não o perfil na abertura
+
+Duas previsões opostas: se o cadastro guardasse o perfil de cada pedido, ao
+longo de cinco anos **alguém** teria de mudar de escolaridade ou profissão; se
+fosse um retrato replicado, a variação seria zero.
+
+| Campo | Pessoas com mais de um valor entre 2022 e 2026 |
+|---|---|
+| `Escolaridade` | **0** |
+| `Profissao` | **0** |
+| `Genero`, `UF`, `Municipio`, `Pais`, `TipoDemandante`, `TipoPessoaJuridica` | **0** |
+| `DataNascimento` (controle) | 0 |
+
+22.963 pessoas aparecem em mais de um ano. **Nenhum campo muda em nenhuma
+delas.** E das 1.999 presentes tanto em 2022 como em 2026, **1.999 (100%)** têm
+registro idêntico nos nove campos. O arquivo anual é o mesmo cadastro recortado.
+
+**Isto não é vazamento de alvo.** O modelo não passa a ler o rótulo, como
+acontecia com `prazo_dias`. É **descasamento de tempo de medição nas
+covariáveis**: as linhas antigas carregam um perfil futuro. Prejudica o treino,
+não o serviço — onde o perfil corrente é o correto.
+
+**Decisão: removidas da produção.** Custo medido: PR-AUC do teste maturado
+0,1836 com elas contra **0,1853** sem; precisão@5% 24,67% contra 24,34%. Tudo
+ruído. Com custo nulo e defeito metodológico real, remover é o correto.
+
+Efeito na auditoria de equidade, que melhorou: a razão de `Ensino Fundamental`
+na fila de 10% caiu de **2,40×** para **1,20×** da participação populacional.
+Parte da disparidade anterior vinha de o modelo usar a escolaridade diretamente.
