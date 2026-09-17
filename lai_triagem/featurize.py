@@ -52,7 +52,9 @@ class Preprocessor:
         self.base_rate: float = meta["base_rate"]
         # O limiar vem do artefato (quantil da validação, recalibrado a cada
         # retreinamento). O padrão só existe para artefatos antigos sem a chave.
-        self.threshold: float = meta.get("threshold", 0.155738)
+        # Sem fallback numérico: limiar fixo no código envelhece em
+        # silêncio a cada retreinamento. Artefato sem a chave é inválido.
+        self.threshold: float = float(meta["threshold"])
         # Nomes que o chamador deve informar; ausentes viram o valor padrão.
         self.caller_features: list[str] = meta.get("caller_supplied_features", [])
         self.caller_default: float = float(meta.get("caller_supplied_default", -1))

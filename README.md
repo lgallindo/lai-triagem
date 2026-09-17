@@ -144,7 +144,7 @@ Resposta:
 {
   "probabilidade_reencaminhamento": 0.076869,
   "alerta": "BAIXO RISCO",
-  "threshold": 0.155738,
+  "threshold": 0.162928,
   "orgao_conhecido": true,
   "orgao_rate_historica": 0.478643,
   "orgao_rate_movel_90d": 0.243032,
@@ -361,7 +361,9 @@ documentação e os comentários estão em pt_BR.*
 - 45,8% das linhas não têm histórico de solicitante aproveitável (16,9%
   anonimizadas, 28,9% de quem pediu uma vez só), então o ganho vem de pouco
   mais da metade do volume.
-- O limiar 0,155738 é ponto de operação da fila de 10%, não probabilidade calibrada.
+- O limiar é ponto de operação da fila de 10%, não probabilidade calibrada, e
+  muda a cada retreinamento. Valor corrente em
+  [`docs/METRICAS.md`](docs/METRICAS.md).
 
 # Dados e licença
 
