@@ -56,6 +56,10 @@ MATURITY_DAYS = 60
 SNAPSHOT = pd.Timestamp("2026-09-14")
 SEED = 42
 QUEUE_FRAC = 0.10  # ponto de operação: fila dos 10% mais arriscados
+# Prior das taxas em janela móvel. Tem de ser idêntico em
+# scripts/refresh_organ_tables.py, senão o reajuste desloca a distribuição da
+# variável em relação ao que foi treinado.
+PRIOR_MOVEL = 20.0
 
 PED_COLS = ["IdPedido", "Esfera", "UF", "Municipio", "OrgaoDestinatario", "Situacao",
             "DataRegistro", "PrazoAtendimento", "FoiReencaminhado", "FormaResposta",
@@ -199,7 +203,12 @@ def build_features(df, births):
     base_all = float(df.y.mean())
     for w in (90, 365):
         cnt, sm = roll[f"cnt_{w}"], roll[f"sum_{w}"]
-        df[f"orgao_rate_movel_{w}d"] = np.where(cnt > 0, sm / np.maximum(cnt, 1), base_all)
+        # Suavização com prior, igual à de orgao_rate. Sem ela, um órgão com um
+        # único pedido na janela produz taxa 0,0 ou 1,0: o ensaio de
+        # refresh_organ_tables.py mostrou 16,2% dos órgãos oscilando mais de
+        # 5 pp por puro ruído de volume baixo. Prior menor que o de orgao_rate
+        # (20 contra 50) porque a janela de 90 d tem menos massa.
+        df[f"orgao_rate_movel_{w}d"] = (sm + PRIOR_MOVEL * base_all) / (cnt + PRIOR_MOVEL)
     born = df.OrgaoDestinatario.map(births)
     df["dias_desde_primeiro_pedido_do_orgao"] = (df._reg - born).dt.days.astype("float32")
     return df
