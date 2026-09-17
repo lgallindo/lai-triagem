@@ -1,22 +1,22 @@
-"""
-H2, final discriminating test.
+"""H2, teste discriminante final.
 
-T1/T3 established that there is exactly one row per ProtocoloPedido and that
-Pedidos and Recursos agree perfectly. Neither settles ORIGINAL vs FINAL, because
-both files come from the same 2026-09-14 snapshot and would mirror the same live
-value if it were mutated.
+T1/T3 estabeleceram que há exatamente uma linha por ProtocoloPedido e que
+Pedidos e Recursos concordam perfeitamente. Nenhum dos dois decide entre ORIGINAL
+e FINAL, porque ambos os arquivos vêm do mesmo retrato de 2026-09-14 e
+espelhariam o mesmo valor corrente caso ele fosse mutado.
 
-This test discriminates on semantics instead of consistency.
+Este teste discrimina por semântica, não por consistência.
 
-The 459 rows with Situacao == "Encaminhada por Outro Órgão" are, by definition,
-sitting at the RECEIVING organ right now (the status means "forwarded by another
-organ"). So for those rows OrgaoDestinatario is provably the receiving organ.
+As 459 linhas com Situacao == "Encaminhada por Outro Órgão" estão, por
+definição, paradas no órgão RECEPTOR neste momento (a situação significa
+"encaminhada por outro órgão"). Logo, para essas linhas, OrgaoDestinatario é
+comprovadamente o órgão receptor.
 
-If OrgaoDestinatario were rewritten to the receiver for ALL reencaminhados, then
-the organs that rank high on reencaminhamento rate should look like the organs in
-that in-transit set: receivers. If instead OrgaoDestinatario keeps the addressed
-organ, high-reenc organs should be misaddressed generalist entry points, largely
-DISJOINT from the receiver set.
+Se OrgaoDestinatario fosse reescrito para o receptor em TODOS os reencaminhados,
+os órgãos com taxa alta de reencaminhamento deveriam parecer-se com os órgãos
+desse conjunto em trânsito: receptores. Se, em vez disso, OrgaoDestinatario
+mantém o órgão endereçado, os órgãos de taxa alta devem ser pontos de entrada
+generalistas mal endereçados, em grande parte DISJUNTOS do conjunto de receptores.
 """
 
 from pathlib import Path
@@ -44,14 +44,14 @@ a = load_all()
 a["reenc"] = a.FoiReencaminhado.eq("Sim")
 print(f"rows {len(a):,}   base reenc rate {a.reenc.mean() * 100:.2f}%\n")
 
-# Provable receivers: rows currently in transit.
+# Receptores comprovados: linhas atualmente em trânsito.
 receivers = set(a.loc[a.Situacao.eq("Encaminhada por Outro Órgão"), "OrgaoDestinatario"].dropna())
 print(f"organs appearing as provable RECEIVERS (Situacao='Encaminhada por Outro Órgão'): {len(receivers)}")
 print("  top 10 by in-transit volume:")
 print(a[a.Situacao.eq("Encaminhada por Outro Órgão")].OrgaoDestinatario
       .value_counts().head(10).to_string(), "\n")
 
-# Organs ranked by reencaminhamento rate (min volume so rates are meaningful).
+# Órgãos ordenados por taxa de reencaminhamento (volume mínimo para a taxa fazer sentido).
 g = a.groupby("OrgaoDestinatario").agg(n=("IdPedido", "size"), reenc=("reenc", "sum"))
 g = g[g.n >= 500]
 g["rate_%"] = (100.0 * g.reenc / g.n).round(2)

@@ -26,6 +26,14 @@ Ganho real de **4,3× na fila dos 5% mais arriscados** — operacionalmente úti
 mas a vantagem do modelo sobre a consulta simples está dentro do ruído, e ele
 **perde** em precisão@5%. Cerca de 76% do ganho do modelo é identidade do órgão.
 
+**Duas variáveis mudam isso.** Acrescentando o histórico do solicitante
+(`n_pedidos_previos`, `prev_reenc_solicitante`), a precisão@5% sobe para
+**27,36%** e a PR-AUC para **0,2025** (+16,5%), superando a consulta por órgão
+pela primeira vez. Solicitantes de primeira viagem são reencaminhados a 8,33%
+contra 5,35% dos veteranos com 50+ pedidos: **quem já usou a LAI aprende qual
+órgão endereçar.** Exige estado por solicitante na inferência, que o serviço
+atual não mantém — ver [`docs/VERIFICATION.md`](docs/VERIFICATION.md).
+
 ---
 
 # Tutorial: carregar o modelo no BentoML desde o zero
@@ -234,8 +242,10 @@ These are unavailable when a request arrives; see docs/VERIFICATION.md.
 
 | Caminho | Papel |
 |---|---|
+| [`docs/CAMPOS_POST_HOC.md`](docs/CAMPOS_POST_HOC.md) | O que é campo *post hoc*, por que não serve para treinar, e o protocolo de identificação |
 | [`docs/TREINAMENTO.md`](docs/TREINAMENTO.md) | Procedimento de treinamento reproduzível e configuração do LightGBM |
 | [`docs/VERIFICATION.md`](docs/VERIFICATION.md) | Auditoria de vazamento e viabilidade — **comece aqui** |
+| `scripts/experiment_features_hpo.py` | Ablação de variáveis derivadas e busca rápida de hiperparâmetros |
 | [`docs/LITERATURE.md`](docs/LITERATURE.md) | Varredura da literatura e protocolo |
 | [`docs/VENUE.md`](docs/VENUE.md) | Plano de publicação, com links auditados |
 | `scripts/train.py` | Treinamento com corte temporal: variantes, diagnóstico vazado e linha de base |

@@ -1,22 +1,24 @@
-"""
-H2, base-rate correction.
+"""H2, correção de taxa-base.
 
-The previous overlap test (19/20 high-reenc organs are "provable receivers") is
-confounded: the receiver set is dominated by high-volume organs, so ANY top-20
-list would overlap with it. This quantifies the confound and then applies the
-directional argument, which is not confounded.
+O teste de sobreposição anterior (19 de 20 órgãos de taxa alta são "receptores
+comprovados") é confundido: o conjunto de receptores é dominado por órgãos de
+alto volume, então QUALQUER lista de 20 se sobreporia a ele. Este script
+quantifica o confundimento e depois aplica o argumento direcional, que não é
+confundido.
 
-Directional argument
+Argumento direcional
 --------------------
-Suppose OrgaoDestinatario is REWRITTEN to the receiving organ on forwarding.
-Then an organ that mostly *sheds* misaddressed requests never keeps them, so it
-should show a LOW reencaminhamento rate; organs that *absorb* forwarded requests
-should show HIGH rates.
+Suponha que OrgaoDestinatario seja REESCRITO para o órgão receptor no
+encaminhamento. Então um órgão que sobretudo *expele* pedidos mal endereçados
+nunca os retém, e deveria exibir taxa BAIXA de reencaminhamento; órgãos que
+*absorvem* pedidos encaminhados deveriam exibir taxa ALTA.
 
-Suppose instead OrgaoDestinatario keeps the ADDRESSED organ. Then the organs
-citizens misaddress show HIGH rates, and narrowly-scoped organs show ~0%.
+Suponha, em vez disso, que OrgaoDestinatario mantenha o órgão ENDEREÇADO. Então
+os órgãos que o cidadão endereça por engano exibem taxa ALTA, e órgãos de
+competência estreita ficam perto de 0%.
 
-These predictions are opposite, so the identity of the top-rate organs decides it.
+As duas previsões são opostas, portanto a identidade dos órgãos de taxa mais
+alta decide a questão.
 """
 
 from pathlib import Path
@@ -56,7 +58,7 @@ print(f"  in bottom-20 by reenc rate:          {bot20.is_recv.sum()}/20  ({100*b
 print(f"\n=> the overlap test is {'CONFOUNDED (uninformative)' if q.is_recv.mean() > 0.6 else 'informative'}:"
       f" membership in the receiver set is already {100*q.is_recv.mean():.0f}% at baseline.")
 
-# Volume confound, stated explicitly.
+# Confundimento por volume, declarado explicitamente.
 print(f"\nmedian pedido volume, receiver organs:     {q[q.is_recv].n.median():>10,.0f}")
 print(f"median pedido volume, non-receiver organs: {q[~q.is_recv].n.median():>10,.0f}")
 
@@ -64,7 +66,7 @@ print("\n" + "=" * 78)
 print("DIRECTIONAL ARGUMENT (not confounded)")
 print("=" * 78)
 
-# Presidency / central-coordination bodies: the canonical misaddress targets.
+# Órgãos da Presidência e de coordenação central: os alvos canônicos de erro de endereço.
 misaddress_magnets = q[q.index.str.contains(
     r"Presidência da República|Casa Civil|Secretaria-Geral|Gabinete de Segurança|"
     r"Secretaria de Comunicação Social da Presid|Ministério da Gestão", regex=True, na=False)]
@@ -73,7 +75,7 @@ print("cannot identify the competent one:")
 print(misaddress_magnets.assign(rate_pct=(100 * misaddress_magnets.rate).round(2))
       [["n", "reenc", "rate_pct"]].sort_values("rate_pct", ascending=False).to_string())
 
-# Narrow-scope organs: unambiguous competence, should be addressed correctly.
+# Órgãos de competência estreita: competência inequívoca, devem ser endereçados corretamente.
 narrow = q[q.index.str.contains(
     r"Universidade Federal|UF[A-Z]{1,3}\b|CEFET|Instituto Federal", regex=True, na=False)]
 print(f"\nnarrow-scope organs (federal universities / institutes), n={len(narrow)}:")

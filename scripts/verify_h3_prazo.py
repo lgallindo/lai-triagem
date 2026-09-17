@@ -1,19 +1,20 @@
-"""
-H3  Is prazo_dias (PrazoAtendimento - DataRegistro) an arrival-time feature?
+"""H3  prazo_dias (PrazoAtendimento - DataRegistro) é variável de chegada?
 
-It is the trained model's dominant signal (40.5% of gain), so if Fala.BR
-recalculates PrazoAtendimento when a request is prorrogated or forwarded, the
-model is leaking and the headline numbers are void.
+É o sinal dominante do modelo treinado (40,5% do ganho), então, se o Fala.BR
+recalcula PrazoAtendimento quando o pedido é prorrogado ou reencaminhado, o
+modelo está vazando e os números de vitrine são nulos.
 
-LAI sets 20 days, extendable once by 10 (art. 11 par. 2). Predictions:
-  * NOT leaky  -> prazo_dias clusters at ~20 regardless of FoiProrrogado
-                  and regardless of FoiReencaminhado.
-  * leaky      -> prazo_dias is systematically larger when FoiProrrogado=Sim
-                  (deadline rewritten after the extension was granted) and/or
-                  differs by FoiReencaminhado.
+A LAI fixa 20 dias, prorrogáveis uma vez por 10 (art. 11 §2). Previsões:
+  * SEM vazamento -> prazo_dias concentra-se em ~20 independentemente de
+                     FoiProrrogado e de FoiReencaminhado.
+  * COM vazamento -> prazo_dias é sistematicamente maior quando
+                     FoiProrrogado == "Sim" (prazo reescrito depois de a
+                     prorrogação ser concedida) e/ou difere por
+                     FoiReencaminhado.
 
-H4  How usable are the demographic features at all?
-    The equity audit showed Escolaridade 80.19% NaN. Quantify the join failure.
+H4  Quão utilizáveis são, afinal, as variáveis demográficas?
+    A auditoria de equidade mostrou Escolaridade 80,19% ausente. Este script
+    quantifica a falha de junção.
 """
 
 from pathlib import Path
@@ -87,9 +88,9 @@ if pd.notna(py) and pd.notna(pn) and abs(py - pn) >= 5:
 else:
     print("=> VERDICT H3: NOT leaky on the prorrogation axis; deadline is set at intake.")
 
-# Does prazo_dias vary at all within a single organ+year? If it is purely
-# statutory it should be near-constant, and its predictive power would then be
-# coming from organ identity rather than from the deadline itself.
+# prazo_dias varia dentro de um mesmo órgão e ano? Se for puramente estatutário,
+# deveria ser quase constante, e seu poder preditivo viria então da identidade do
+# órgão, não do prazo em si.
 print("\n-- within-organ variability (is it just an organ proxy?) --")
 sub = df[df.prazo_dias.notna()]
 print(f"  distinct prazo_dias values: {sub.prazo_dias.nunique()}")

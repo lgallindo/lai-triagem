@@ -1,21 +1,22 @@
-"""
-Round 2 of leakage verification, with the two methodological gaps from round 1 closed.
+"""Segunda rodada de verificação de vazamento, com as duas falhas metodológicas da
+primeira rodada corrigidas.
 
-H1  AssuntoPedido availability at arrival.
-    Gap closed: run the recency test on the CURRENT year (2026). In the 2024 file
-    every row has been triaged for ~2 years, so "last 7 days" said nothing. In the
-    2026 file, rows registered days before the 2026-09-14 snapshot are genuinely
-    fresh, so if the SIC assigns assunto during triage those rows must lack it.
+H1  Disponibilidade de AssuntoPedido na chegada.
+    Falha corrigida: rodar o teste de recência no ano CORRENTE (2026). No arquivo
+    de 2024 toda linha já foi triada há ~2 anos, então "últimos 7 dias" nada
+    dizia. No arquivo de 2026, linhas registradas dias antes do retrato de
+    2026-09-14 são genuinamente recentes; se o SIC atribui o assunto durante a
+    triagem, essas linhas têm de estar sem ele.
 
-H2  Does OrgaoDestinatario hold the originally addressed organ or the final one?
-    Gap closed: drop the protocol-prefix test (purity 0.58, prefix is not an organ
-    id) and use three independent structural tests instead:
-      T1  duplicate ProtocoloPedido -> does forwarding create a second row,
-          preserving the original, rather than mutating one row in place?
-      T2  Situacao x FoiReencaminhado -> the status "Encaminhada por Outro Órgão"
-          names the receiving side explicitly.
-      T3  Recursos join -> Recursos carries OrgaoPedido (the pedido's organ as
-          recorded on the appeal) next to Pedidos.OrgaoDestinatario.
+H2  OrgaoDestinatario guarda o órgão endereçado ou o final?
+    Falha corrigida: abandonar o teste por prefixo de protocolo (pureza 0,58, o
+    prefixo não identifica órgão) e usar três testes estruturais independentes:
+      T1  ProtocoloPedido duplicado -> o reencaminhamento cria uma segunda
+          linha, preservando a original, em vez de mutar uma linha no lugar?
+      T2  Situacao x FoiReencaminhado -> a situação "Encaminhada por Outro
+          Órgão" nomeia explicitamente o lado receptor.
+      T3  Junção com Recursos -> Recursos carrega OrgaoPedido (o órgão do pedido
+          tal como registrado no recurso) ao lado de Pedidos.OrgaoDestinatario.
 """
 
 from pathlib import Path
@@ -77,7 +78,7 @@ def h1(year=2026):
     print(pd.DataFrame(rows, columns=["window", "rows", "assunto_miss", "assunto_miss_%",
                                       "subassunto_miss_%"]).to_string(index=False))
 
-    # Untriaged proxy: rows with no response yet.
+    # Proxy de não triado: linhas ainda sem resposta.
     open_rows = df[df.DataResposta.isna()]
     print(f"\nrows with no DataResposta (still open): {len(open_rows):,}"
           f"   assunto missing {pct(open_rows.AssuntoPedido.isna().sum(), len(open_rows))}")
@@ -134,7 +135,7 @@ def h2_t3_recursos(year=2024):
     ped = load("Pedidos", year, ["IdPedido", "OrgaoDestinatario", "FoiReencaminhado", "Situacao"])
     rec = load("Recursos_Reclamacoes", year,
                ["IdPedido", "OrgaoPedido", "OrgaoDestinatario", "Instancia"])
-    rec = rec[rec.Instancia.eq("Primeira Instância")]  # 2nd instance escalates to CGU by design
+    rec = rec[rec.Instancia.eq("Primeira Instância")]  # a 2ª instância escala para a CGU por desenho
     print(f"pedidos {len(ped):,}   recursos 1a instancia {len(rec):,}")
 
     m = rec.merge(ped, on="IdPedido", suffixes=("_rec", "_ped"), how="inner")

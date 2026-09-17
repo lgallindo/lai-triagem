@@ -1,4 +1,5 @@
-"""LAI/FOIA-specific probes. A zero count here is the evidence we want."""
+"""Sondagens específicas de LAI e FOIA. Contagem zero aqui é a evidência desejada.
+"""
 
 import json
 import time

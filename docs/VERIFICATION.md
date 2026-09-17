@@ -145,7 +145,58 @@ O modelo ganha 0,008 em PR-AUC e 0,9 pp em precisão@10%, e **perde em
 precisão@5%**. 76% do seu ganho é identidade do órgão (`orgao_rate` 48,1% +
 `OrgaoDestinatario` 27,7%).
 
-**Conclusão:** removido o vazamento, praticamente todo o sinal recuperável é
-"alguns órgãos são cronicamente mal endereçados". Isso ainda é operacionalmente
-útil — **ganho de 4,3× na fila dos 5%** — mas não exige aprendizado de máquina,
-e qualquer publicação precisa dizê-lo.
+**Conclusão parcial:** com o conjunto original de variáveis, praticamente todo o
+sinal recuperável era "alguns órgãos são cronicamente mal endereçados" — útil,
+mas não exigia aprendizado de máquina.
+
+## Atualização: o histórico do solicitante quebra o empate
+
+`scripts/experiment_features_hpo.py` testou seis grupos de variáveis derivadas.
+Cinco não produziram nada. Um mudou a conclusão.
+
+**G2 — histórico do solicitante**, duas variáveis estritamente causais
+(contagem acumulada deslocada, ordenada por data, de modo que a linha corrente
+nunca vê a si mesma nem o futuro):
+
+- `n_pedidos_previos` — quantos pedidos aquele `IdSolicitante` já fez antes
+- `prev_reenc_solicitante` — quantos deles foram reencaminhados
+
+| Variante | nvar | val PR-AUC | teste PR-AUC | teste prec@5% | teste AUC | Δ PR-AUC |
+|---|---|---|---|---|---|---|
+| base (chegada) | 20 | 0,2058 | 0,1738 | 0,2472 | 0,7471 | — |
+| **+ G2 histórico** | **22** | **0,2305** | **0,2025** | **0,2736** | **0,7762** | **+0,0287** |
+| + G1 ausência | 25 | 0,2048 | 0,1740 | 0,2462 | 0,7465 | +0,0002 |
+| + G3 volume do órgão | 21 | 0,2045 | 0,1729 | 0,2455 | 0,7455 | −0,0009 |
+| + G4 codificações de alvo extra | 23 | 0,2018 | 0,1736 | 0,2469 | 0,7469 | −0,0002 |
+| + G5 calendário | 22 | 0,2053 | 0,1731 | 0,2448 | 0,7455 | −0,0007 |
+| + G6 geografia | 21 | 0,2053 | 0,1710 | 0,2437 | 0,7464 | −0,0028 |
+| todos os grupos | 34 | 0,2247 | 0,1968 | 0,2653 | 0,7727 | +0,0230 |
+
+Ganho relativo de **+16,5% em PR-AUC** no teste maturado, com **duas** variáveis.
+Juntar todos os grupos é **pior** que G2 sozinho (0,1968 contra 0,2025): os
+outros cinco só acrescentam ruído.
+
+**Isto supera a linha de base pela primeira vez.** Precisão@5% de **27,36%**
+contra **24,79%** da consulta por órgão — +2,6 pp, ~10% relativo. Portanto o
+aprendizado de máquina passa a ter justificativa, coisa que não tinha antes.
+
+O mecanismo é interpretável e visível no dado bruto:
+
+| Pedidos anteriores do solicitante | n | Taxa de reenc. |
+|---|---|---|
+| anônimo (`IdSolicitante == '0'`) | 110.718 | 7,68% |
+| 0 (primeira vez) | 240.387 | **8,33%** |
+| 1–2 | 77.776 | 7,67% |
+| 3–10 | 74.815 | 6,48% |
+| 11–50 | 75.125 | 5,46% |
+| 50+ | 75.897 | **5,35%** |
+
+Monotônico e decrescente: **solicitantes experientes aprendem qual órgão
+endereçar.** Quem pede pela primeira vez tem 56% mais chance de ser
+reencaminhado que quem já pediu mais de 50 vezes. Esse é um achado substantivo
+sobre a LAI, não apenas uma variável útil.
+
+**Ressalva de implantação:** as duas variáveis exigem estado por solicitante em
+tempo de inferência, o que o serviço atual — deliberadamente sem estado — não
+tem. Adotá-las obriga a manter um contador por `IdSolicitante`. A decisão é de
+arquitetura, não de modelagem.

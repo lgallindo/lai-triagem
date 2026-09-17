@@ -1,5 +1,7 @@
-"""Literature scan via OpenAlex + Crossref for prior work on ML-assisted
-handling of freedom-of-information / public-records requests."""
+"""Varredura da literatura via OpenAlex e Crossref, em busca de trabalho anterior
+sobre tratamento assistido por aprendizado de máquina de pedidos de acesso à
+informação.
+"""
 
 import json
 import time

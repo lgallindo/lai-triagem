@@ -1,17 +1,17 @@
-"""
-Verification of two leakage hypotheses on the CGU Fala.BR LAI "Pedidos" dataset.
+"""Verificação de duas hipóteses de vazamento no conjunto "Pedidos" da LAI (Fala.BR/CGU).
 
-H1  AssuntoPedido / SubAssuntoPedido are assigned by the SIC during triage,
-    i.e. they are a triage OUTPUT and not available at request-arrival time.
+H1  AssuntoPedido / SubAssuntoPedido são atribuídos pelo SIC durante a triagem,
+    isto é, são SAÍDA da triagem e não estão disponíveis quando o pedido chega.
 
-H2  OrgaoDestinatario is overwritten when a request is reencaminhado,
-    i.e. it holds the FINAL recipient rather than the originally addressed organ.
+H2  OrgaoDestinatario é sobrescrito quando o pedido é reencaminhado, ou seja,
+    guarda o destinatário FINAL em vez do órgão originalmente endereçado.
 
-H2 test relies on the Brazilian NUP protocol layout:
-    ProtocoloPedido = OOOOO SSSSSS YYYY DD   (organ, sequence, year, check digits)
-The 5-digit organ prefix is fixed at registration. If OrgaoDestinatario were
-rewritten on reencaminhamento while the protocol kept the original organ, the
-prefix -> organ mapping must degrade specifically on reencaminhado rows.
+O teste de H2 apoia-se no formato do protocolo NUP brasileiro:
+    ProtocoloPedido = OOOOO SSSSSS AAAA DD   (órgão, sequencial, ano, dígitos)
+O prefixo de 5 dígitos do órgão é fixado no registro. Se OrgaoDestinatario
+fosse reescrito no reencaminhamento enquanto o protocolo mantivesse o órgão
+original, o mapeamento prefixo -> órgão teria de degradar especificamente nas
+linhas reencaminhadas.
 """
 
 import sys
@@ -54,8 +54,8 @@ def h1_assunto(df: pd.DataFrame, year: int) -> None:
         miss = df[col].isna().sum()
         print(f"  {col:<20} missing {miss:>9,}  ({pct(miss, n)})   distinct {df[col].nunique():>6,}")
 
-    # Decisive slice: requests still open. If the SIC assigns assunto during
-    # triage, open requests that have not been triaged yet must lack it.
+    # Corte decisivo: pedidos ainda abertos. Se o SIC atribui o assunto durante
+    # a triagem, pedidos abertos e não triados têm de estar sem ele.
     print("\n  -- missingness of AssuntoPedido by Situacao --")
     g = df.groupby("Situacao", dropna=False).agg(
         rows=("IdPedido", "size"),
@@ -64,7 +64,7 @@ def h1_assunto(df: pd.DataFrame, year: int) -> None:
     g["missing_%"] = (100.0 * g.assunto_missing / g.rows).round(3)
     print(g.sort_values("rows", ascending=False).to_string())
 
-    # Recency: newest registrations are the least likely to have been triaged.
+    # Recência: os registros mais novos são os menos prováveis de já triados.
     d = pd.to_datetime(df["DataRegistro"], format="%d/%m/%Y", errors="coerce")
     df = df.assign(_reg=d)
     last = d.max()
@@ -92,10 +92,10 @@ def h2_orgao(df: pd.DataFrame, year: int) -> None:
     print(f"rows usable: {len(d):,}   reencaminhado: {d.reenc.sum():,} ({pct(d.reenc.sum(), len(d))})")
     print(f"distinct protocol prefixes: {d.prefix.nunique():,}   distinct organs: {d.OrgaoDestinatario.nunique():,}")
 
-    # Is the prefix actually an organ identifier? Measure how concentrated the
-    # organ distribution is within each prefix, on NON-reencaminhado rows only
-    # (those were never forwarded, so prefix and organ must agree if the
-    # prefix encodes the addressed organ).
+    # O prefixo é de fato identificador de órgão? Mede a concentração da
+    # distribuição de órgãos dentro de cada prefixo, apenas nas linhas NÃO
+    # reencaminhadas (nunca foram encaminhadas, então prefixo e órgão têm de
+    # concordar se o prefixo codificar o órgão endereçado).
     clean = d[~d.reenc]
     if not len(clean):
         print("  no non-reencaminhado rows; cannot calibrate")
@@ -112,8 +112,8 @@ def h2_orgao(df: pd.DataFrame, year: int) -> None:
         print("  H2 test inconclusive via protocol prefix; falling back to Recursos join only.")
         return
 
-    # Now the actual test: does the prefix's modal organ still match
-    # OrgaoDestinatario on reencaminhado rows?
+    # Agora o teste de fato: o órgão modal do prefixo ainda coincide com
+    # OrgaoDestinatario nas linhas reencaminhadas?
     d["expected"] = d.prefix.map(modal)
     known = d[d.expected.notna()]
     agree = known.expected.eq(known.OrgaoDestinatario)

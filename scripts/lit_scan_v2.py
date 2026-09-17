@@ -1,5 +1,6 @@
-"""Targeted literature scan: title+abstract filtered (not fuzzy `search`),
-so we can tell an empty result set apart from a noisy one."""
+"""Varredura dirigida: filtrada por título e resumo (não pelo `search` difuso), para
+que seja possível distinguir um conjunto de resultados vazio de um ruidoso.
+"""
 
 import json
 import time
@@ -9,7 +10,7 @@ import urllib.request
 MAILTO = "lgms@cesar.org.br"
 UA = {"User-Agent": f"lai-triagem-litscan (mailto:{MAILTO})"}
 
-# Precise title_and_abstract filters. An empty result here is real evidence.
+# Filtros precisos de título e resumo. Resultado vazio aqui é evidência real.
 PROBES = [
     ("A. Fala.BR / LAI specific", [
         "Fala.BR", "Lei de Acesso a Informacao", "acesso a informacao pedidos",
