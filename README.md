@@ -7,6 +7,9 @@ aos pedidos com maior chance de roteamento incorreto.
 
 > ## Leia antes de usar o escore
 >
+> *Termo desconhecido? O [glossário](#glossário) no fim deste arquivo explica 26
+> deles, em uma frase cada — inclusive os que aparecem logo abaixo.*
+>
 > Cinco famílias de variáveis foram **excluídas por vazamento**, incluindo as
 > duas de maior ganho aparente: `prazo_dias` (+22 pp de PR-AUC) e `protocolo_seq`
 > (+26 pp). O serviço mantém `/score_baseline` — a consulta por órgão, sem
@@ -60,8 +63,8 @@ cronicamente mal endereçados", e uma tabela de consulta de uma linha captura
 isso.
 
 Efeito colateral notável da defasagem de maturação:
-`orgao_rate_movel_90d` caiu para **2,77%** do ganho, enquanto a janela de 365
-dias ficou em **7,50%**. Defasada em 60 dias, uma janela de 90 dias fica quase
+`orgao_rate_movel_90d` caiu para **2,81%** do ganho, enquanto a janela de 365
+dias ficou em **10,20%**. Defasada em 60 dias, uma janela de 90 dias fica quase
 toda obsoleta — perde exatamente a atualidade que a justificava.
 
 ## As variáveis demográficas: usadas, com uma limitação declarada
@@ -87,8 +90,8 @@ retido no artefato**. Ver
 
 ## Contrato de dados: o que o chamador informa
 
-As sete variáveis de histórico do solicitante são **dado pessoal** e por decisão
-explícita **não são embarcadas no artefato** — o chamador as informa, e o
+Os **oito** campos de histórico do solicitante são **dado pessoal** e por
+decisão explícita **não são embarcados no artefato** — o chamador as informa, e o
 Fala.BR já as possui. O artefato contém apenas tabelas de conduta de **órgãos**
 (entidades públicas). Racional completo em
 [`docs/DECISAO_ESTADO_SOLICITANTE.md`](docs/DECISAO_ESTADO_SOLICITANTE.md).
@@ -161,6 +164,23 @@ uv run bentoml models list
 ```bash
 uv run bentoml serve service.py:LaiTriagem
 ```
+
+> ### Este comando não devolve o terminal
+>
+> Ele fica rodando e imprimindo log — é assim que tem de ser, é um servidor. Ele
+> **não** vai voltar para o `$` de comando, e você **não** deve interrompê-lo.
+>
+> **Abra uma segunda janela de terminal** para os próximos passos, e deixe esta
+> aqui de lado, servindo. No fim, volte nela e pressione `Ctrl+C` para encerrar.
+>
+> Se preferir não abrir outra janela, ponha o serviço em segundo plano:
+>
+> ```bash
+> uv run bentoml serve service.py:LaiTriagem > /tmp/servico.log 2>&1 &
+> ```
+>
+> Nesse caso o log vai para `/tmp/servico.log`, e você encerra depois com
+> `kill %1` na mesma janela.
 
 O serviço sobe em `http://localhost:3000`. A documentação interativa fica em
 `http://localhost:3000/docs`.
@@ -244,6 +264,24 @@ E **sem** o histórico — só os dois campos obrigatórios:
 curl -sS -X POST http://localhost:3000/score -H 'Content-Type: application/json' -d '{"pedido":{"OrgaoDestinatario":"CC-PR – Casa Civil da Presidência da República","DataRegistro":"15/09/2026"}}'
 ```
 
+Resposta:
+
+```json
+{
+  "probabilidade_reencaminhamento": 0.337359,
+  "alerta": "ALTO RISCO",
+  "threshold": 0.162928,
+  "probabilidade_calibrada": 0.312586,
+  "calibrada_apenas_para_leitura": true,
+  "orgao_conhecido": true,
+  "orgao_rate_historica": 0.478643,
+  "orgao_rate_movel_90d": 0.257018,
+  "base_rate_coorte": 0.080268,
+  "historico_informado": false,
+  "historico_parcial_ignorado": false
+}
+```
+
 O escore **cai** de 0,408009 para 0,337359 e `historico_informado` vira
 `false`. O órgão é o mesmo; a diferença é tudo o que se sabe sobre o
 solicitante — e, neste caso, o histórico deste veterano **agravava** o risco.
@@ -262,6 +300,17 @@ isso a fila é ordenada pelo escore cru.
 
 ```bash
 curl -sS -X POST http://localhost:3000/score_baseline -H 'Content-Type: application/json' -d '{"pedido":{"OrgaoDestinatario":"CC-PR – Casa Civil da Presidência da República","DataRegistro":"15/09/2026"}}'
+```
+
+Resposta:
+
+```json
+{
+  "probabilidade_reencaminhamento": 0.478643,
+  "alerta": "ALTO RISCO",
+  "metodo": "lookup histórico por órgão (sem modelo)",
+  "orgao_conhecido": true
+}
 ```
 
 Retorna `0.478643`, a taxa histórica crua do órgão. O modelo distingue
@@ -306,7 +355,7 @@ resto é opcional e ausência é tratada como valor faltante.
 
 | Campo | Origem | Tipo | Uso no modelo | Razão da inclusão |
 |---|---|---|---|---|
-| `OrgaoDestinatario` | Pedidos | categórico | **11,56%** do ganho; alimenta as tabelas por órgão, que somam 60,4% | Órgão a que o cidadão endereçou. Sobreviveu à auditoria H2: é o endereçado, não o destinatário final |
+| `OrgaoDestinatario` | Pedidos | categórico | **20,19%** do ganho; alimenta as tabelas por órgão, que somam 53,52% | Órgão a que o cidadão endereçou. Sobreviveu à auditoria H2: é o endereçado, não o destinatário final |
 | `DataRegistro` | Pedidos | data, **`dd/mm/aaaa`** | deriva `reg_month`, `reg_dow`, `reg_day` | Único carimbo temporal disponível na chegada. Formato obrigatório: `15/09/2026` |
 | `Esfera` | Pedidos | categórico | baixo | Federal/estadual/municipal; separa regimes de competência |
 | `UF` | Pedidos | categórico | baixo | UF do pedido quando não federal |
@@ -321,7 +370,7 @@ resto é opcional e ausência é tratada como valor faltante.
 | `Pais` | Solicitantes | categórico | baixo | País de residência |
 | `UF_sol` | Solicitantes | categórico | 0,56% | UF de residência; alimenta `uf_match` |
 | `Municipio_sol` | Solicitantes | categórico | **8,73%** | Município de residência — quarto sinal mais forte |
-| `DataNascimento` | Solicitantes | data | deriva `idade` (1,13%) | Idade na data do registro; descartada fora de 10–110 anos |
+| `DataNascimento` | Solicitantes | data, **`dd/mm/aaaa`** | deriva `idade` (1,13%) | Idade na data do registro; descartada fora de 10–110 anos |
 
 ## Variáveis derivadas — lado do órgão (embarcadas no artefato)
 
@@ -403,7 +452,10 @@ Também são removidas da modelagem as **459 linhas** com
 | `alerta` | `"ALTO RISCO"` \| `"BAIXO RISCO"` | Comparação com `threshold` |
 | `threshold` | float | o valor em [`docs/METRICAS.md`](docs/METRICAS.md) — quantil 90 dos escores de validação, ponto de operação da fila de 10%. Reajustado a cada retreinamento |
 | `orgao_rate_movel_90d` | float | Taxa do órgão na janela móvel de 90 d, exposta para auditoria |
+| `probabilidade_calibrada` | float 0–1 \| `null` | O mesmo escore passado pela regressão isotônica, legível como probabilidade. **Não ordena a fila** — ver a linha seguinte |
+| `calibrada_apenas_para_leitura` | bool | Sempre `true`, como lembrete: a calibração cria platôs que empatam casos que o escore cru separa, então quem ordena é sempre `probabilidade_reencaminhamento` |
 | `historico_informado` | bool | `false` se o chamador omitiu o histórico do solicitante — o escore está degradado |
+| `historico_parcial_ignorado` | bool | `true` quando você mandou **alguns** dos oito campos de histórico e não todos. Nesse caso o serviço descartou o conjunto inteiro: é erro de integração, e não ausência deliberada |
 | `orgao_conhecido` | bool | `false` se o órgão não aparece nos anos de treino; nesse caso o escore recai na taxa-base |
 | `orgao_rate_historica` | float | Taxa histórica do órgão, exposta para auditabilidade do escore |
 | `base_rate_coorte` | float | 0,080268 — taxa-base da coorte de treino, para referência |
@@ -547,6 +599,7 @@ de máquina. Em ordem de aparição, não alfabética.
 | **limiar** (*threshold*) | O valor de corte acima do qual o pedido é marcado ALTO RISCO |
 | **quantil 90** | O valor que 90% dos escores não ultrapassam. Usamos como limiar para que a fila fique com os 10% mais arriscados |
 | **calibrado** | Um escore calibrado pode ser lido como probabilidade de verdade ("0,30" ≈ 30% de chance). O escore cru **não** pode: ele só serve para ordenar |
+| **regressão isotônica** | A técnica usada aqui para calibrar: aprende uma função que só cresce, mapeando escore cru em probabilidade. Como ela é feita de degraus, vários escores diferentes caem no **mesmo** degrau — um platô — e ficam empatados. Foi por isso que ela custou 0,56 pp de precisão@5% quando usada para ordenar, e por isso a fila usa o escore cru |
 | **codificação de alvo** (*target encoding*) | Trocar uma categoria pela taxa histórica do que se quer prever naquela categoria. É o que `orgao_rate` faz: cada órgão vira sua própria taxa de reencaminhamento |
 | **suavização com prior** | Ao calcular a taxa de um órgão com poucos pedidos, misturar com a taxa geral para não confiar em amostra pequena. "Prior 50" = equivale a acrescentar 50 pedidos médios |
 | **vazamento** (*data leakage*) | Usar, para prever, uma informação que na hora real da decisão ainda não existiria. Faz o modelo parecer ótimo no teste e falhar em produção |

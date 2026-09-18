@@ -54,6 +54,17 @@ falhas: list[str] = []
 avisos: list[str] = []
 
 
+def pontua_baseline(payload: dict) -> dict:
+    """Reproduz `/score_baseline`: a consulta por órgão, sem modelo."""
+    taxa = float(prep.organ_rate.get(payload["OrgaoDestinatario"], prep.base_rate))
+    return {
+        "probabilidade_reencaminhamento": round(taxa, 6),
+        "alerta": risk_label(taxa, prep.threshold),
+        "metodo": "lookup histórico por órgão (sem modelo)",
+        "orgao_conhecido": prep.organ_is_known(payload["OrgaoDestinatario"]),
+    }
+
+
 def pontua(payload: dict) -> dict:
     """Reproduz `/score` em processo, campo a campo igual ao service.py."""
     limpo = {k: v for k, v in payload.items() if v is not None}
@@ -146,7 +157,10 @@ for doc in VIGENTES:
 
         n_comparados += 1
         try:
-            real = pontua(pedido)
+            # Cada endpoint tem contrato próprio: comparar a resposta da linha
+            # de base contra o escore do modelo daria divergência falsa.
+            real = (pontua_baseline(pedido) if "/score_baseline" in m.group(0)
+                    else pontua(pedido))
         except Exception as e:  # payload documentado que nem pontua é defeito
             falhas.append(f"{rotulo}: o payload documentado não pontua: {e!r}")
             continue
@@ -163,6 +177,56 @@ for doc in VIGENTES:
                 falhas.append(
                     f"{rotulo}: campo `{campo}` documentado como {valor_doc!r}, "
                     f"real {valor_real!r}")
+
+# ---------------------------------------------------------------------------
+# 2c — ganho por variável citado em tabela contra o ganho medido no booster
+#
+# Estes percentuais são mantidos à mão em três tabelas e já divergiram QUATRO
+# vezes; a auditoria da camada 3 achou duas instâncias que eu não tinha visto,
+# com o README se contradizendo internamente (20,19% na conclusão contra 11,56%
+# na tabela). Isto fecha a classe.
+# ---------------------------------------------------------------------------
+ganhos_brutos = booster.feature_importance(importance_type="gain")
+total_ganho = float(ganhos_brutos.sum())
+GANHO = {n: 100.0 * g / total_ganho
+         for n, g in zip(booster.feature_name(), ganhos_brutos)}
+
+RX_LINHA_TABELA = re.compile(r"^\|\s*`([^`]+)`")
+RX_PCT = re.compile(r"(\d+,\d+)%")
+# Só vale dentro de tabela cujo CABEÇALHO fala de ganho. Sem isso a regra
+# confunde percentual de ausência com percentual de ganho: a tabela H4 de
+# VERIFICATION.md tem cabeçalho `| Campo | Ausente | Distintos |` e diz que
+# `Escolaridade` está 76,23% ausente, o que não é ganho nenhum.
+n_ganhos = 0
+for doc in VIGENTES:
+    em_tabela_de_ganho = False
+    for n, linha in enumerate(doc.read_text(encoding="utf-8").splitlines(), 1):
+        if not linha.startswith("|"):
+            em_tabela_de_ganho = False
+            continue
+        if "Ganho" in linha or "Uso no modelo" in linha:
+            em_tabela_de_ganho = True
+            continue
+        if not em_tabela_de_ganho:
+            continue
+        achado_nome = RX_LINHA_TABELA.match(linha)
+        if not achado_nome or achado_nome.group(1) not in GANHO:
+            continue
+        nome = achado_nome.group(1)
+        # "baixo" ocupa a coluna de ganho em algumas linhas; aí o percentual
+        # que aparece na linha é outra coisa.
+        if "baixo" in linha or "ausente" in linha:
+            continue
+        pcts = RX_PCT.findall(linha)
+        if not pcts:
+            continue
+        n_ganhos += 1
+        primeiro = float(pcts[0].replace(",", "."))
+        esperado = round(GANHO[nome], 2)
+        if abs(primeiro - esperado) > 0.01:
+            falhas.append(
+                f"{doc.relative_to(ROOT)}:{n}  ganho de `{nome}`: tabela diz "
+                f"{primeiro:.2f}%, booster diz {esperado:.2f}%")
 
 # ---------------------------------------------------------------------------
 # 3 — afirmações em prosa que o artefato contradiz
@@ -219,6 +283,7 @@ print(f"isentos por serem registro histórico: {len(HISTORICOS)} "
       f"({', '.join(d.name for d in HISTORICOS)})")
 print(f"payloads de curl conferidos: {n_curls}")
 print(f"respostas comparadas:        {n_comparados}")
+print(f"ganhos de variável conferidos: {n_ganhos}")
 print(f"endpoints lidos do service:  {endpoints}")
 
 if avisos:
