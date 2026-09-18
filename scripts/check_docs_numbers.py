@@ -23,7 +23,11 @@ N_CALLER = len(meta["caller_supplied_features"])
 N_EXCL = len(meta["excluded_leakage_features"])
 
 # `METRICAS.md` é gerado e por definição coerente; não se audita a si mesmo.
-DOCS = [p for p in list(ROOT.glob("*.md")) + list(ROOT.glob("docs/*.md"))
+# A varredura de `docs/` é RECURSIVA de propósito: quando as auditorias foram
+# movidas para `docs/auditorias/`, um glob não recursivo as teria tirado do
+# alcance do guarda sem ninguém notar. Omissão silenciosa é pior que isenção
+# declarada -- se algum arquivo precisar de isenção, que ela esteja escrita.
+DOCS = [p for p in list(ROOT.glob("*.md")) + list(ROOT.glob("docs/**/*.md"))
         if p.name != "METRICAS.md"]
 
 # Padrões que carregam um número verificável, com o valor esperado.

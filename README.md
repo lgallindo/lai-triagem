@@ -52,7 +52,7 @@ essencialmente, a tabela de consulta com enfeites.
 >
 > Corrigidos os dois (defasagem de maturação nas variáveis de desfecho, ordem
 > `(data, IdPedido)` nas de contagem), o ganho desapareceu. Registro completo em
-> [`docs/AUDITORIA_EXTERNA.md`](docs/AUDITORIA_EXTERNA.md).
+> [`docs/auditorias/`](docs/auditorias/INDICE.md).
 
 **A conclusão original do projeto volta a valer:** com variáveis honestas de
 chegada, praticamente todo o sinal recuperável é "alguns órgãos são
@@ -429,7 +429,7 @@ These are unavailable when a request arrives; see docs/VERIFICATION.md.
 |---|---|
 | [`docs/METRICAS.md`](docs/METRICAS.md) | **Gerado** por train.py; fonte única de todo número de desempenho |
 | [`docs/DECISAO_ESTADO_SOLICITANTE.md`](docs/DECISAO_ESTADO_SOLICITANTE.md) | Onde vive o histórico do solicitante e por quê — decisão de proteção de dados |
-| [`docs/AUDITORIA_EXTERNA.md`](docs/AUDITORIA_EXTERNA.md) | Auditorias independentes: o que outros agentes encontraram neste trabalho |
+| [`docs/auditorias/`](docs/auditorias/INDICE.md) | Auditorias, um arquivo por data: o que outros agentes — e o roteiro mecânico — encontraram neste trabalho |
 | [`docs/CAMPOS_POST_HOC.md`](docs/CAMPOS_POST_HOC.md) | O que é campo *post hoc*, por que não serve para treinar, e o protocolo de identificação |
 | [`docs/TREINAMENTO.md`](docs/TREINAMENTO.md) | Procedimento de treinamento reproduzível e configuração do LightGBM |
 | [`docs/VERIFICATION.md`](docs/VERIFICATION.md) | Auditoria de vazamento e viabilidade — **comece aqui** |

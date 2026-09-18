@@ -20,7 +20,7 @@ contra **24,80%** da consulta por órgão.
 Toda seção abaixo que atribua ganho ao histórico do solicitante (G2, T1) está
 medida sobre variáveis vazadas e será republicada. As seções H1 a H5, que tratam
 de exclusão de campos, permanecem válidas. Ver
-[`AUDITORIA_EXTERNA.md`](AUDITORIA_EXTERNA.md).
+[`auditorias/`](auditorias/INDICE.md).
 
 ## Resumo dos achados
 
@@ -177,7 +177,7 @@ ordenada por data.
 > futuro, mas inclui pedidos do **mesmo dia** (159.320 linhas; 22.793 com
 > rótulo positivo) e consome desfechos com menos de 60 dias (53.434 linhas).
 > Os ganhos abaixo estão **otimistas**. Ver
-> [`AUDITORIA_EXTERNA.md`](AUDITORIA_EXTERNA.md).
+> [`auditorias/`](auditorias/INDICE.md).
 
 - `n_pedidos_previos` — quantos pedidos aquele `IdSolicitante` já fez antes
 - `prev_reenc_solicitante` — quantos deles foram reencaminhados
