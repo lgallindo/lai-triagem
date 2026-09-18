@@ -444,9 +444,31 @@ These are unavailable when a request arrives; see docs/VERIFICATION.md.
 | `lai_triagem/featurize.py` | Featurização de chegada e barreira de vazamento, compartilhada por treino e serviço |
 | `service.py`, `scripts/register_bento.py` | Serviço BentoML e registro do modelo |
 | `examples/minimal_predict.py` | Exemplo mínimo de escoragem |
+| `scripts/test_metrics.py` | Testa a precisão@k: empates, permutações, casos de borda |
+| `scripts/check_docs_numbers.py` | Guarda: nenhum `.md` contradiz as contagens e o limiar do artefato |
+| `scripts/check_prosa.py` | Guarda: executa os `curl` do README e compara com a resposta documentada |
+| `scripts/check_artefato.py` | Guarda: o modelo entregue é coerente, carrega isolado e não traz dado pessoal |
+| `scripts/check_comentarios.py` | Guarda: docstrings e comentários em pt_BR, sem caminho morto |
 
 *Os nomes de arquivos, classes, funções e variáveis permanecem em en_US; a
 documentação e os comentários estão em pt_BR.*
+
+## Conferir o repositório antes de confiar nele
+
+Cinco guardas, todas determinísticas e independentes de rede. Rode-as em
+sequência; qualquer saída diferente de zero é motivo para não confiar no escore:
+
+```bash
+for g in test_metrics check_docs_numbers check_prosa check_artefato check_comentarios; do uv run python scripts/$g.py || echo "FALHOU: $g"; done
+```
+
+A mais severa é a `check_prosa.py`: ela **extrai os comandos `curl` deste
+próprio README**, executa o payload pelo mesmo caminho de código que o serviço
+embrulha, e compara campo a campo com a resposta que o README promete logo
+abaixo. Existe porque em 18/09/2026 este README documentava, no seu exemplo
+principal, uma classificação de risco **oposta** à que o modelo devolve — e
+todas as guardas de então passavam. Ver
+[`docs/auditorias/2026-09-18-camadas-0-1.md`](docs/auditorias/2026-09-18-camadas-0-1.md).
 
 # Limitações conhecidas
 

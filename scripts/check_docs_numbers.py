@@ -63,12 +63,29 @@ print(f"artefato: {N_VARS} variáveis, limiar {THRESHOLD}, "
       f"{N_CALLER} campos do chamador, {N_EXCL} exclusões")
 print(f"documentos auditados: {len(DOCS)}")
 
-# METRICAS.md tem de existir e ser mais novo que o artefato.
+# METRICAS.md tem de existir e descrever ESTE artefato.
+#
+# Antes isto comparava mtime, e mtime não é conteúdo: `git checkout`, um clone
+# ou uma cópia reordenam mtimes à vontade. Pior, o protocolo de auditoria deste
+# projeto restaura `artifacts/` depois de cada rodada -- ou seja, a própria
+# rotina de auditoria fazia este guarda falhar por engano, com o conteúdo
+# perfeitamente coerente. A comparação agora é do carimbo que o METRICAS.md
+# declara contra o `created_utc` gravado no artefato: exata, e imune a mtime.
 mdoc = ROOT / "docs/METRICAS.md"
 if not mdoc.exists():
     falhas.append("docs/METRICAS.md ausente — rode scripts/train.py")
-elif mdoc.stat().st_mtime < (ROOT / "artifacts/preprocessor.json").stat().st_mtime - 5:
-    falhas.append("docs/METRICAS.md mais antigo que o artefato — regere")
+else:
+    carimbo_artefato = meta.get("created_utc")
+    # Ancorado no `Z` final: sem isso a classe de caracteres engole o ponto
+    # que encerra a frase, e o carimbo nunca casa.
+    achado = re.search(r"Gerado por `scripts/train\.py` em ([0-9T:.\-]+Z)",
+                       mdoc.read_text(encoding="utf-8"))
+    if not achado:
+        falhas.append("docs/METRICAS.md não declara quando foi gerado")
+    elif carimbo_artefato and achado.group(1) != carimbo_artefato:
+        falhas.append(
+            f"docs/METRICAS.md descreve o treino de {achado.group(1)}, mas o "
+            f"artefato é de {carimbo_artefato} — regere com scripts/train.py")
 
 if falhas:
     print(f"\nFALHOU: {len(falhas)} divergência(s)")
