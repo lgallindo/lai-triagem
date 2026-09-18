@@ -225,11 +225,19 @@ def lagged_outcome_sums(sub, keys, lag_days=MATURITY_DAYS):
     left = sub[keys + ["_reg"]].copy()
     left["_cut"] = left["_reg"] - pd.Timedelta(days=lag_days)
     left = left.sort_values("_cut", kind="stable")
+    # H7: `merge_asof` REINICIA o índice, então `m.index` é POSIÇÃO, não rótulo
+    # de linha. Quem consome faz `Series(cum_y, index=order).reindex(sub.index)`,
+    # que casa por rótulo — e como `df` levou `reset_index(drop=True)` e `sub`
+    # exclui os solicitantes anônimos, rótulo e posição não coincidem. Devolver
+    # `m.index` fazia 94.145 linhas (17,3%) receberem NaN, virando "sem
+    # histórico", e 120.060 receberem o histórico de OUTRA linha. O rótulo tem
+    # de ser guardado antes do merge.
+    rotulos = left.index.to_numpy()
     m = pd.merge_asof(left, daily[keys + ["_reg", "cum_y", "cum_n"]],
                       left_on="_cut", right_on="_reg", by=keys,
                       direction="backward", suffixes=("", "_d"))
     return (m.cum_y.fillna(0.0).to_numpy(), m.cum_n.fillna(0.0).to_numpy(),
-            m.index.to_numpy())
+            rotulos)
 
 
 def build_features(df, births):
@@ -328,7 +336,14 @@ def build_features(df, births):
 
     # --- dinâmica do órgão ---------------------------------------------------
     roll = organ_rolling(df)
-    base_all = float(df.y.mean())
+    # H8: o prior tem de vir SÓ dos anos de treino. Antes era `df.y.mean()`,
+    # sobre todo o quadro — 2025 e 2026 inclusive —, o que punha rótulo de
+    # validação e de teste dentro de uma variável de entrada. Pior que uma
+    # impropriedade formal: `base_all` (0,0726) fica mais perto da taxa-base do
+    # teste que `base_train` (0,0803), então encolher para ela lisonjeava o
+    # resultado. Corrigir DERRUBOU a precisão@5% de 24,67% para 23,14%, que é
+    # exatamente a assinatura de vazamento: ao tapar, o desempenho aparente cai.
+    base_prior = float(df.loc[df.ano.isin(TRAIN_YEARS), "y"].mean())
     for w in (90, 365):
         cnt, sm = roll[f"cnt_{w}"], roll[f"sum_{w}"]
         # Suavização com prior, igual à de orgao_rate. Sem ela, um órgão com um
@@ -336,7 +351,7 @@ def build_features(df, births):
         # refresh_organ_tables.py mostrou 16,2% dos órgãos oscilando mais de
         # 5 pp por puro ruído de volume baixo. Prior menor que o de orgao_rate
         # (20 contra 50) porque a janela de 90 d tem menos massa.
-        df[f"orgao_rate_movel_{w}d"] = (sm + PRIOR_MOVEL * base_all) / (cnt + PRIOR_MOVEL)
+        df[f"orgao_rate_movel_{w}d"] = (sm + PRIOR_MOVEL * base_prior) / (cnt + PRIOR_MOVEL)
     born = df.OrgaoDestinatario.map(births)
     df["dias_desde_primeiro_pedido_do_orgao"] = (df._reg - born).dt.days.astype("float32")
     return df

@@ -29,16 +29,16 @@ envelhecer. O quadro no fecho desta seção:
 | Escore, teste 2026 maturado | PR-AUC | prec@5% |
 |---|---|---|
 | Consulta histórica por órgão (sem modelo) | 0,1641 | **24,80%** |
-| LightGBM | 0,1836 | 24,67% |
+| LightGBM | 0,1855 | 23,74% |
 
-**O modelo NÃO supera a consulta por órgão na métrica primária.** Perde 0,5% em
-precisão@5% — a fila que o produto de fato entrega. Ganha 11,9% em PR-AUC e
-10,9% em precisão@10%, o que não compensa.
+**O modelo NÃO supera a consulta por órgão na métrica primária.** Perde **4,3%**
+em precisão@5% — a fila que o produto de fato entrega. Ganha 13,0% em PR-AUC e
+7,9% em precisão@10%, o que não compensa.
 
-A explicação está no ganho por variável: `orgao_rate` 40,51% +
-`OrgaoDestinatario` 20,19% + as duas taxas móveis 13,01% somam **73,71% de
-identidade do órgão**. Todo o histórico do solicitante soma **7,98%**. Contando
-também a idade do órgão, a identidade do órgão chega a 76,34%. O modelo é,
+A explicação está no ganho por variável: `orgao_rate` 40,34% +
+`OrgaoDestinatario` 15,44% + as duas taxas móveis 16,34% somam **72,13% de
+identidade do órgão**. Todo o histórico do solicitante soma **10,33%**. Contando
+também a idade do órgão, a identidade do órgão chega a 74,92%. O modelo é,
 essencialmente, a tabela de consulta com enfeites.
 
 > ### Este número já foi muito melhor, e era vazamento
@@ -62,10 +62,13 @@ chegada, praticamente todo o sinal recuperável é "alguns órgãos são
 cronicamente mal endereçados", e uma tabela de consulta de uma linha captura
 isso.
 
-Efeito colateral notável da defasagem de maturação:
-`orgao_rate_movel_90d` caiu para **2,81%** do ganho, enquanto a janela de 365
-dias ficou em **10,20%**. Defasada em 60 dias, uma janela de 90 dias fica quase
-toda obsoleta — perde exatamente a atualidade que a justificava.
+Sobre as duas janelas móveis, vale registrar uma reviravolta. Durante um tempo
+este README dizia que a defasagem de 60 dias havia esvaziado a janela de 90 dias
+(2,81% do ganho) em favor da de 365 (10,20%). **Era artefato de um defeito.** O
+prior de suavização vinha da taxa-base de todo o período, 2025 e 2026 inclusive
+— vazamento H8, corrigido em 18/09/2026. Com o prior honesto, a ordem se
+inverte: a janela de 90 dias vale **9,25%** e a de 365 vale **7,10%**. A janela
+curta é a que informa; era o vazamento que a fazia parecer inútil.
 
 ## As variáveis demográficas: usadas, com uma limitação declarada
 
@@ -81,8 +84,15 @@ entre 2022 e 2026. Ou seja, um pedido de 2022 carrega o perfil de 2026.
 Testamos se isso prejudica o modelo. **Não prejudica de forma mensurável:** o
 ganho das demográficas é até *maior* no treino de 2022 (+0,0121 de PR-AUC), onde
 o retrato está mais defasado, do que no de 2024 (+0,0052). Sem tendência, sem
-contaminação detectável. Remover as variáveis também não mudaria nada
-(0,1836 contra 0,1853). Detalhes em `scripts/experiment_h6_mitigacao.py`.
+contaminação detectável. Remover as variáveis também não mudaria nada — na
+verdade o modelo fica marginalmente **melhor** sem elas (PR-AUC 0,1883 contra
+0,1855), diferença dentro do ruído. Detalhes em
+`scripts/experiment_h6_mitigacao.py`.
+
+> Os dois números de ganho por ano acima (+0,0121 e +0,0052) foram medidos
+> **antes** da correção de H7 e H8, em 17/09/2026, e ainda não foram
+> remedidos. A conclusão qualitativa — sem tendência detectável — não depende
+> deles, mas os valores exatos vão mudar.
 
 O dado pessoal que o serviço recebe — perfil e contadores de histórico — **não é
 retido no artefato**. Ver
@@ -240,14 +250,14 @@ Resposta:
 
 ```json
 {
-  "probabilidade_reencaminhamento": 0.408009,
+  "probabilidade_reencaminhamento": 0.336119,
   "alerta": "ALTO RISCO",
-  "threshold": 0.162928,
-  "probabilidade_calibrada": 0.312586,
+  "threshold": 0.163204,
+  "probabilidade_calibrada": 0.319588,
   "calibrada_apenas_para_leitura": true,
   "orgao_conhecido": true,
   "orgao_rate_historica": 0.478643,
-  "orgao_rate_movel_90d": 0.257018,
+  "orgao_rate_movel_90d": 0.257573,
   "base_rate_coorte": 0.080268,
   "historico_informado": true,
   "historico_parcial_ignorado": false
@@ -268,28 +278,30 @@ Resposta:
 
 ```json
 {
-  "probabilidade_reencaminhamento": 0.337359,
+  "probabilidade_reencaminhamento": 0.372225,
   "alerta": "ALTO RISCO",
-  "threshold": 0.162928,
-  "probabilidade_calibrada": 0.312586,
+  "threshold": 0.163204,
+  "probabilidade_calibrada": 0.342246,
   "calibrada_apenas_para_leitura": true,
   "orgao_conhecido": true,
   "orgao_rate_historica": 0.478643,
-  "orgao_rate_movel_90d": 0.257018,
+  "orgao_rate_movel_90d": 0.257573,
   "base_rate_coorte": 0.080268,
   "historico_informado": false,
   "historico_parcial_ignorado": false
 }
 ```
 
-O escore **cai** de 0,408009 para 0,337359 e `historico_informado` vira
+O escore **sobe** de 0,336119 para 0,372225 e `historico_informado` vira
 `false`. O órgão é o mesmo; a diferença é tudo o que se sabe sobre o
-solicitante — e, neste caso, o histórico deste veterano **agravava** o risco.
+solicitante — e, neste caso, o histórico deste veterano **atenuava** o risco:
+saber que ele já fez 80 pedidos, 12 neste órgão, e que nenhum foi reencaminhado
+aqui, baixa o escore em relação a não saber nada.
 
-Curiosidade que justifica a calibração ser só para leitura: nos três cenários
-`probabilidade_calibrada` devolve o mesmo 0,312586, porque a regressão isotônica
-tem um platô cobrindo essa faixa. Ela empata casos que o escore cru separa — por
-isso a fila é ordenada pelo escore cru.
+Por que a calibração é só para leitura: no teste maturado, ordenar pelo escore
+calibrado custa **0,33 pp** de precisão@5% (23,74% no cru contra 23,41% no
+calibrado). A regressão isotônica é feita de degraus, e um degrau empata casos
+que o escore cru separava — então a fila é sempre ordenada pelo escore cru.
 
 > **O histórico é um conjunto de tudo-ou-nada.** Se você mandar alguns dos oito
 > campos e não todos, o serviço **descarta o conjunto inteiro** e avisa em
@@ -314,9 +326,9 @@ Resposta:
 ```
 
 Retorna `0.478643`, a taxa histórica crua do órgão. O modelo distingue
-estreante de veterano e a consulta não — mas, após a correção do vazamento, essa
-distinção **não se traduz** em ganho de precisão@5% (24,80% da base contra
-24,67% do modelo). Mantemos o endpoint porque a comparação é o achado.
+estreante de veterano e a consulta não — mas essa distinção **não se traduz** em
+ganho de precisão@5%: 24,80% da base contra 23,74% do modelo. Mantemos o
+endpoint porque a comparação é o achado.
 
 ## Passo 7 (opcional) — sem BentoML
 
@@ -355,22 +367,22 @@ resto é opcional e ausência é tratada como valor faltante.
 
 | Campo | Origem | Tipo | Uso no modelo | Razão da inclusão |
 |---|---|---|---|---|
-| `OrgaoDestinatario` | Pedidos | categórico | **20,19%** do ganho; alimenta as tabelas por órgão, que somam 53,52% | Órgão a que o cidadão endereçou. Sobreviveu à auditoria H2: é o endereçado, não o destinatário final |
+| `OrgaoDestinatario` | Pedidos | categórico | **15,44%** do ganho; alimenta as tabelas por órgão, que somam 56,69% | Órgão a que o cidadão endereçou. Sobreviveu à auditoria H2: é o endereçado, não o destinatário final |
 | `DataRegistro` | Pedidos | data, **`dd/mm/aaaa`** | deriva `reg_month`, `reg_dow`, `reg_day` | Único carimbo temporal disponível na chegada. Formato obrigatório: `15/09/2026` |
 | `Esfera` | Pedidos | categórico | baixo | Federal/estadual/municipal; separa regimes de competência |
 | `UF` | Pedidos | categórico | baixo | UF do pedido quando não federal |
-| `Municipio` | Pedidos | categórico | 0,36% | Município do pedido quando não federal |
+| `Municipio` | Pedidos | categórico | 0,42% | Município do pedido quando não federal |
 | `FormaResposta` | Pedidos | categórico | baixo | Escolhida pelo solicitante **na abertura** — logo, disponível |
-| `OrigemSolicitacao` | Pedidos | categórico | 0,53% | Balcão SIC vs Internet; definido na abertura |
-| `TipoDemandante` | Solicitantes | categórico | 0,31% | Pessoa física/jurídica |
+| `OrigemSolicitacao` | Pedidos | categórico | 0,52% | Balcão SIC vs Internet; definido na abertura |
+| `TipoDemandante` | Solicitantes | categórico | 0,25% | Pessoa física/jurídica |
 | `Genero` | Solicitantes | categórico | baixo | Perfil; 70,7% ausente |
 | `Escolaridade` | Solicitantes | categórico | baixo | Perfil; **76,2% ausente** — central na auditoria de equidade |
-| `Profissao` | Solicitantes | categórico | 0,62% | Perfil; 76,9% ausente |
+| `Profissao` | Solicitantes | categórico | 0,43% | Perfil; 76,9% ausente |
 | `TipoPessoaJuridica` | Solicitantes | categórico | baixo | Vazio para pessoa física |
 | `Pais` | Solicitantes | categórico | baixo | País de residência |
-| `UF_sol` | Solicitantes | categórico | 0,56% | UF de residência; alimenta `uf_match` |
-| `Municipio_sol` | Solicitantes | categórico | **8,73%** | Município de residência — quarto sinal mais forte |
-| `DataNascimento` | Solicitantes | data, **`dd/mm/aaaa`** | deriva `idade` (1,13%) | Idade na data do registro; descartada fora de 10–110 anos |
+| `UF_sol` | Solicitantes | categórico | 0,49% | UF de residência; alimenta `uf_match` |
+| `Municipio_sol` | Solicitantes | categórico | **8,26%** | Município de residência — quarto sinal mais forte |
+| `DataNascimento` | Solicitantes | data, **`dd/mm/aaaa`** | deriva `idade` (0,87%) | Idade na data do registro; descartada fora de 10–110 anos |
 
 ## Variáveis derivadas — lado do órgão (embarcadas no artefato)
 
@@ -378,10 +390,10 @@ Conduta de entidade pública; sem dado pessoal. Reajustadas a cada retreinamento
 
 | Derivada | Fórmula | Ganho |
 |---|---|---|
-| `orgao_rate` | taxa histórica suavizada do órgão, ajustada **só nos anos de treino** (prior 50 × taxa-base) | **40,51%** |
-| `orgao_rate_movel_365d` | taxa em janela móvel de 365 d, **defasada 60 d** | **10,20%** |
-| `orgao_rate_movel_90d` | idem, 90 d — a defasagem de maturação a esvaziou | 2,81% |
-| `dias_desde_primeiro_pedido_do_orgao` | idade do órgão; datada de 2012 em diante | 2,63% |
+| `orgao_rate` | taxa histórica suavizada do órgão, ajustada **só nos anos de treino** (prior 50 × taxa-base) | **40,34%** |
+| `orgao_rate_movel_90d` | taxa em janela móvel de 90 d, **defasada 60 d**; prior de suavização também só do treino | **9,25%** |
+| `orgao_rate_movel_365d` | idem, 365 d | 7,10% |
+| `dias_desde_primeiro_pedido_do_orgao` | idade do órgão; datada de 2012 em diante | 2,80% |
 | `idade` | `DataRegistro − DataNascimento`, em anos | baixo |
 | `reg_month`, `reg_dow`, `reg_day` | componentes de `DataRegistro` | baixo |
 | `uf_match` | `UF_sol == UF` | baixo |
@@ -395,19 +407,20 @@ valores que nunca aparece no treinamento, e o escore não teria significado.
 
 | Campo | Significado | Ganho |
 |---|---|---|
-| `n_pedidos_previos_neste_orgao` | pedidos anteriores deste solicitante **a este órgão** | **3,34%** |
-| `n_pedidos_previos` | total de pedidos anteriores (agregado) | 1,92% |
-| `n_orgaos_distintos_previos` | amplitude: quantos órgãos distintos já acionou | 1,28% |
-| `dias_desde_ultimo_pedido` | recência da última interação; `-1` se não houver | 1,19% |
-| `prev_reenc_solicitante` | reencaminhamentos anteriores, **numerador** | 0,10% |
-| `prev_reenc_neste_orgao` | idem, restrito a este órgão, **numerador** | 0,01% |
+| `n_pedidos_previos_neste_orgao` | pedidos anteriores deste solicitante **a este órgão** | **2,38%** |
+| `n_pedidos_previos` | total de pedidos anteriores (agregado) | 1,43% |
+| `n_orgaos_distintos_previos` | amplitude: quantos órgãos distintos já acionou | 1,26% |
+| `dias_desde_ultimo_pedido` | recência da última interação; `-1` se não houver | 0,92% |
+| `prev_reenc_solicitante` | reencaminhamentos anteriores, **numerador** | 0,53% |
+| `prev_reenc_neste_orgao` | idem, restrito a este órgão, **numerador** | 0,21% |
 | `prev_reenc_solicitante_den` | **denominador maturado** do numerador acima | — |
 | `prev_reenc_neste_orgao_den` | **denominador maturado**, restrito a este órgão | — |
 
 Os dois denominadores não recebem ganho próprio porque não entram no modelo
 como variáveis: o serviço usa cada par numerador/denominador para calcular
-internamente as razões `prev_reenc_rate_solicitante` (0,11% de ganho) e
-`prev_reenc_rate_neste_orgao` (0,03%). Elas **não** devem ser enviadas pelo
+internamente as razões `prev_reenc_rate_neste_orgao` (**2,41%** de ganho, a
+quarta variável de histórico mais forte) e `prev_reenc_rate_solicitante`
+(1,18%). Elas **não** devem ser enviadas pelo
 chamador — eram entradas em versões anteriores e deixaram de ser quando a
 maturação de 60 dias passou a ser aplicada ao denominador.
 
@@ -546,7 +559,7 @@ todas as guardas de então passavam. Ver
 - **`Escolaridade` 76,2% ausente**, `Profissao` 76,9%. A regra de abstenção do
   Termo de Abertura — não pontuar quando falta perfil — recusaria **77,58%** dos
   pedidos, o que não é um produto viável.
-- Variáveis demográficas somam pouco; **73,71% do ganho é identidade do
+- Variáveis demográficas somam pouco; **72,13% do ganho é identidade do
   órgão**. E elas vêm de um retrato atual do cadastro, não do perfil na
   abertura do pedido — limitação H6, sem efeito mensurável medido.
 - **O ganho por variável é mantido à mão neste README e já divergiu três
