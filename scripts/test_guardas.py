@@ -116,9 +116,15 @@ CASOS = [
      texto("| `Municipio_sol` | Solicitantes | categórico | **8,26%** |",
            "| `Municipio_sol` | Solicitantes | categórico | **9,99%** |"),
      "scripts/check_prosa.py"),
-    ("limiar obsoleto na documentação", "README.md",
-     texto("limiar **0,163204**", "limiar **0,999999**"),
+    # O padrão `limiar <número>` não aparece em nenhum documento vigente -- só
+    # em registro de auditoria, que é isento. A regra existe para impedir que o
+    # número volte a ser escrito à mão, então a mutação acrescenta uma linha
+    # nova a um documento vigente, que é como a reincidência aconteceria.
+    ("limiar obsoleto reintroduzido na documentação", "docs/VERIFICATION.md",
+     acrescenta("\nO limiar **0,999999** é o ponto de operação da fila.\n"),
      "scripts/check_docs_numbers.py"),
+    ("número em prosa que o serviço não produz", "README.md",
+     texto("0,080268", "0,070707"), "scripts/check_prosa.py"),
     ("feature_order permutado", "artifacts/preprocessor.json",
      json_mutante(_permuta), "scripts/check_artefato.py"),
     ("e-mail embarcado no artefato", "artifacts/preprocessor.json",

@@ -27,8 +27,13 @@ N_EXCL = len(meta["excluded_leakage_features"])
 # movidas para `docs/auditorias/`, um glob não recursivo as teria tirado do
 # alcance do guarda sem ninguém notar. Omissão silenciosa é pior que isenção
 # declarada -- se algum arquivo precisar de isenção, que ela esteja escrita.
+# `docs/auditorias/` também é isento, e por motivo diferente: registro de
+# auditoria CITA o estado do artefato no dia em que foi feito. "limiar 0,163204"
+# num relatório de 18/09/2026 está correto como história e passaria a falhar no
+# próximo retreinamento. Exatamente como `METRICAS.md`, a isenção é declarada e
+# impressa, não silenciosa.
 DOCS = [p for p in list(ROOT.glob("*.md")) + list(ROOT.glob("docs/**/*.md"))
-        if p.name != "METRICAS.md"]
+        if p.name != "METRICAS.md" and "auditorias" not in p.parts]
 
 # Padrões que carregam um número verificável, com o valor esperado.
 REGRAS = [

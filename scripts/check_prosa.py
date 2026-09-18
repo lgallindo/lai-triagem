@@ -93,6 +93,10 @@ RX_CURL = re.compile(r"curl[^\n]*?-d '(\{.*?\})'", re.S)
 RX_JSON = re.compile(r"```json\n(.*?)\n```", re.S)
 
 n_curls = n_comparados = 0
+# Valores que o serviço de fato produz, e por isso podem ser citados em prosa.
+# Serve à varredura global mais abaixo: qualquer número de seis decimais escrito
+# com VÍRGULA é prosa (o JSON usa ponto), então tem de ser um destes.
+legitimos: set[float] = {prep.threshold, prep.base_rate}
 for doc in VIGENTES:
     texto = doc.read_text(encoding="utf-8")
     for m in RX_CURL.finditer(texto):
@@ -125,24 +129,24 @@ for doc in VIGENTES:
                 f"{rotulo}: manda {sorted(intrusos)}, que o serviço deriva "
                 f"internamente e ignora na entrada.")
 
-        # (2b) Nem todo `curl` é seguido de bloco ```json: dois deles têm o
-        # resultado citado em PROSA ("cai para 0,337359", "Retorna 0.478643").
-        # Prosa é justamente onde número obsoleto sobrevive, então se a prosa
-        # logo abaixo cita algo com cara de probabilidade, tem de ser a certa.
-        depois = texto[m.end():m.end() + 700]
-        corta = depois.find("```json")
-        prosa = depois if corta == -1 else depois[:corta]
-        citados = {c.replace(",", ".") for c in re.findall(r"\b0[.,]\d{6}\b", prosa)}
-        if citados:
-            if "/score_baseline" in m.group(0):
-                esperado = round(float(prep.organ_rate.get(
-                    pedido["OrgaoDestinatario"], prep.base_rate)), 6)
-            else:
-                esperado = pontua(pedido)["probabilidade_reencaminhamento"]
-            if f"{esperado:.6f}" not in citados:
-                falhas.append(
-                    f"{rotulo}: a prosa cita {sorted(citados)} mas este payload "
-                    f"produz {esperado:.6f}")
+        # (2b) Localidade: o trecho entre este `curl` e o próximo tem de citar,
+        # em algum lugar, o escore que ESTE payload produz. Antes isto olhava só
+        # os 700 caracteres seguintes e cortava no primeiro ```json -- e quando
+        # a resposta completa passou a ser documentada, a frase em prosa foi
+        # empurrada para depois do bloco e saiu da janela. O teste de mutação
+        # pegou a regressão: a regra passou a aceitar 0,999999 em silêncio.
+        proximo = RX_CURL.search(texto, m.end())
+        regiao = texto[m.end():proximo.start() if proximo else len(texto)]
+        if "/score_baseline" in m.group(0):
+            esperado = round(float(prep.organ_rate.get(
+                pedido["OrgaoDestinatario"], prep.base_rate)), 6)
+        else:
+            esperado = pontua(pedido)["probabilidade_reencaminhamento"]
+        alvo = f"{esperado:.6f}"
+        if alvo not in regiao and alvo.replace(".", ",") not in regiao:
+            falhas.append(
+                f"{rotulo}: nem o bloco de resposta nem a prosa até o próximo "
+                f"comando citam {alvo}, que é o que este payload produz")
 
         # (2) o bloco ```json seguinte tem de bater com a resposta real.
         seguinte = RX_JSON.search(texto[m.end():])
@@ -161,6 +165,8 @@ for doc in VIGENTES:
             # de base contra o escore do modelo daria divergência falsa.
             real = (pontua_baseline(pedido) if "/score_baseline" in m.group(0)
                     else pontua(pedido))
+            # Todo valor que o serviço de fato devolve é legítimo em prosa.
+            legitimos.update(v for v in real.values() if isinstance(v, float))
         except Exception as e:  # payload documentado que nem pontua é defeito
             falhas.append(f"{rotulo}: o payload documentado não pontua: {e!r}")
             continue
@@ -177,6 +183,25 @@ for doc in VIGENTES:
                 falhas.append(
                     f"{rotulo}: campo `{campo}` documentado como {valor_doc!r}, "
                     f"real {valor_real!r}")
+
+# ---------------------------------------------------------------------------
+# 2d — todo número de seis decimais escrito em PROSA tem de ser um valor que o
+# serviço realmente produz. O discriminador é a pontuação: o JSON usa ponto
+# decimal, a prosa em português usa vírgula. Sem depender de janela nenhuma,
+# isto pega número obsoleto em qualquer lugar do texto.
+# ---------------------------------------------------------------------------
+RX_PROSA_DECIMAL = re.compile(r"\b(\d+,\d{6})\b")
+n_prosa = 0
+for doc in VIGENTES:
+    for n, linha in enumerate(doc.read_text(encoding="utf-8").splitlines(), 1):
+        for achado in RX_PROSA_DECIMAL.findall(linha):
+            n_prosa += 1
+            valor = float(achado.replace(",", "."))
+            if not any(abs(valor - v) < 1e-6 for v in legitimos):
+                falhas.append(
+                    f"{doc.relative_to(ROOT)}:{n}  prosa cita {achado}, que não "
+                    f"é nenhum valor que o serviço produz para os payloads "
+                    f"documentados")
 
 # ---------------------------------------------------------------------------
 # 2c — ganho por variável citado em tabela contra o ganho medido no booster
@@ -284,6 +309,7 @@ print(f"isentos por serem registro histórico: {len(HISTORICOS)} "
 print(f"payloads de curl conferidos: {n_curls}")
 print(f"respostas comparadas:        {n_comparados}")
 print(f"ganhos de variável conferidos: {n_ganhos}")
+print(f"decimais em prosa conferidos: {n_prosa}  (valores legítimos: {len(legitimos)})")
 print(f"endpoints lidos do service:  {endpoints}")
 
 if avisos:
