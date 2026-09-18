@@ -32,10 +32,11 @@ envelhecer. O quadro no fecho desta seção:
 precisão@5% — a fila que o produto de fato entrega. Ganha 11,9% em PR-AUC e
 10,9% em precisão@10%, o que não compensa.
 
-A explicação está no ganho por variável: `orgao_rate` 52,26% +
-`OrgaoDestinatario` 22,23% + as duas taxas móveis 10,27% somam **84,8% de
-identidade do órgão**. Todo o resto — histórico do solicitante e perfil — soma
-menos de 15%. O modelo é, essencialmente, a tabela de consulta com enfeites.
+A explicação está no ganho por variável: `orgao_rate` 40,51% +
+`OrgaoDestinatario` 20,19% + as duas taxas móveis 13,01% somam **73,71% de
+identidade do órgão**. Todo o histórico do solicitante soma **7,98%**. Contando
+também a idade do órgão, a identidade do órgão chega a 76,34%. O modelo é,
+essencialmente, a tabela de consulta com enfeites.
 
 > ### Este número já foi muito melhor, e era vazamento
 >
@@ -187,26 +188,36 @@ curl -sS http://localhost:3000/healthz && echo " -> de pé"
 
 ## Passo 5 — primeira chamada
 
-Com o histórico do solicitante informado pelo chamador (precisão plena):
+Com o histórico do solicitante informado pelo chamador (precisão plena). São
+**oito** campos de histórico, e é tudo-ou-nada: mandar sete faz o serviço
+descartar o conjunto inteiro. Note os dois terminados em `_den`, que são os
+denominadores maturados — eles **não** podem faltar:
 
 ```bash
-curl -sS -X POST http://localhost:3000/score -H 'Content-Type: application/json' -d '{"pedido":{"OrgaoDestinatario":"CC-PR – Casa Civil da Presidência da República","DataRegistro":"15/09/2026","Escolaridade":"Ensino Fundamental","UF_sol":"PE","n_pedidos_previos":80,"prev_reenc_solicitante":3,"prev_reenc_rate_solicitante":0.0375,"n_pedidos_previos_neste_orgao":12,"prev_reenc_neste_orgao":0,"n_orgaos_distintos_previos":14,"dias_desde_ultimo_pedido":5}}'
+curl -sS -X POST http://localhost:3000/score -H 'Content-Type: application/json' -d '{"pedido":{"OrgaoDestinatario":"CC-PR – Casa Civil da Presidência da República","DataRegistro":"15/09/2026","Escolaridade":"Ensino Fundamental","UF_sol":"PE","n_pedidos_previos":80,"prev_reenc_solicitante":3,"prev_reenc_solicitante_den":80,"n_pedidos_previos_neste_orgao":12,"prev_reenc_neste_orgao":0,"prev_reenc_neste_orgao_den":12,"n_orgaos_distintos_previos":14,"dias_desde_ultimo_pedido":5}}'
 ```
 
 Resposta:
 
 ```json
 {
-  "probabilidade_reencaminhamento": 0.076869,
-  "alerta": "BAIXO RISCO",
+  "probabilidade_reencaminhamento": 0.408009,
+  "alerta": "ALTO RISCO",
   "threshold": 0.162928,
+  "probabilidade_calibrada": 0.312586,
+  "calibrada_apenas_para_leitura": true,
   "orgao_conhecido": true,
   "orgao_rate_historica": 0.478643,
-  "orgao_rate_movel_90d": 0.243032,
+  "orgao_rate_movel_90d": 0.257018,
   "base_rate_coorte": 0.080268,
-  "historico_informado": true
+  "historico_informado": true,
+  "historico_parcial_ignorado": false
 }
 ```
+
+Confira sempre `historico_informado`. Se vier `false` com
+`historico_parcial_ignorado: true`, faltou algum dos oito campos e o escore que
+você recebeu é o de **sem histórico**, não o de precisão plena.
 
 E **sem** o histórico — só os dois campos obrigatórios:
 
@@ -214,8 +225,14 @@ E **sem** o histórico — só os dois campos obrigatórios:
 curl -sS -X POST http://localhost:3000/score -H 'Content-Type: application/json' -d '{"pedido":{"OrgaoDestinatario":"CC-PR – Casa Civil da Presidência da República","DataRegistro":"15/09/2026"}}'
 ```
 
-O escore sobe muito e `historico_informado` vira `false`. O órgão é o mesmo; a
-diferença é tudo o que se sabe sobre o solicitante.
+O escore **cai** de 0,408009 para 0,337359 e `historico_informado` vira
+`false`. O órgão é o mesmo; a diferença é tudo o que se sabe sobre o
+solicitante — e, neste caso, o histórico deste veterano **agravava** o risco.
+
+Curiosidade que justifica a calibração ser só para leitura: nos três cenários
+`probabilidade_calibrada` devolve o mesmo 0,312586, porque a regressão isotônica
+tem um platô cobrindo essa faixa. Ela empata casos que o escore cru separa — por
+isso a fila é ordenada pelo escore cru.
 
 > **O histórico é um conjunto de tudo-ou-nada.** Se você mandar alguns dos oito
 > campos e não todos, o serviço **descarta o conjunto inteiro** e avisa em
@@ -274,18 +291,18 @@ resto é opcional e ausência é tratada como valor faltante.
 | `DataRegistro` | Pedidos | data, **`dd/mm/aaaa`** | deriva `reg_month`, `reg_dow`, `reg_day` | Único carimbo temporal disponível na chegada. Formato obrigatório: `15/09/2026` |
 | `Esfera` | Pedidos | categórico | baixo | Federal/estadual/municipal; separa regimes de competência |
 | `UF` | Pedidos | categórico | baixo | UF do pedido quando não federal |
-| `Municipio` | Pedidos | categórico | 0,6% | Município do pedido quando não federal |
+| `Municipio` | Pedidos | categórico | 0,36% | Município do pedido quando não federal |
 | `FormaResposta` | Pedidos | categórico | baixo | Escolhida pelo solicitante **na abertura** — logo, disponível |
-| `OrigemSolicitacao` | Pedidos | categórico | 0,7% | Balcão SIC vs Internet; definido na abertura |
-| `TipoDemandante` | Solicitantes | categórico | 0,6% | Pessoa física/jurídica |
+| `OrigemSolicitacao` | Pedidos | categórico | 0,53% | Balcão SIC vs Internet; definido na abertura |
+| `TipoDemandante` | Solicitantes | categórico | 0,31% | Pessoa física/jurídica |
 | `Genero` | Solicitantes | categórico | baixo | Perfil; 70,7% ausente |
 | `Escolaridade` | Solicitantes | categórico | baixo | Perfil; **76,2% ausente** — central na auditoria de equidade |
-| `Profissao` | Solicitantes | categórico | 1,2% | Perfil; 76,9% ausente |
+| `Profissao` | Solicitantes | categórico | 0,62% | Perfil; 76,9% ausente |
 | `TipoPessoaJuridica` | Solicitantes | categórico | baixo | Vazio para pessoa física |
 | `Pais` | Solicitantes | categórico | baixo | País de residência |
-| `UF_sol` | Solicitantes | categórico | 1,0% | UF de residência; alimenta `uf_match` |
-| `Municipio_sol` | Solicitantes | categórico | **11,5%** | Município de residência — terceiro sinal mais forte |
-| `DataNascimento` | Solicitantes | data | deriva `idade` (2,5%) | Idade na data do registro; descartada fora de 10–110 anos |
+| `UF_sol` | Solicitantes | categórico | 0,56% | UF de residência; alimenta `uf_match` |
+| `Municipio_sol` | Solicitantes | categórico | **8,73%** | Município de residência — quarto sinal mais forte |
+| `DataNascimento` | Solicitantes | data | deriva `idade` (1,13%) | Idade na data do registro; descartada fora de 10–110 anos |
 
 ## Variáveis derivadas — lado do órgão (embarcadas no artefato)
 
@@ -293,38 +310,43 @@ Conduta de entidade pública; sem dado pessoal. Reajustadas a cada retreinamento
 
 | Derivada | Fórmula | Ganho |
 |---|---|---|
-| `orgao_rate` | taxa histórica suavizada do órgão, ajustada **só nos anos de treino** (prior 50 × taxa-base) | **39,35%** |
-| `orgao_rate_movel_90d` | taxa em janela móvel de 90 d, **estritamente anterior** à data do pedido | **16,13%** |
-| `orgao_rate_movel_365d` | idem, 365 d | 3,62% |
-| `dias_desde_primeiro_pedido_do_orgao` | idade do órgão; datada de 2012 em diante | 1,32% |
+| `orgao_rate` | taxa histórica suavizada do órgão, ajustada **só nos anos de treino** (prior 50 × taxa-base) | **40,51%** |
+| `orgao_rate_movel_365d` | taxa em janela móvel de 365 d, **defasada 60 d** | **10,20%** |
+| `orgao_rate_movel_90d` | idem, 90 d — a defasagem de maturação a esvaziou | 2,81% |
+| `dias_desde_primeiro_pedido_do_orgao` | idade do órgão; datada de 2012 em diante | 2,63% |
 | `idade` | `DataRegistro − DataNascimento`, em anos | baixo |
 | `reg_month`, `reg_dow`, `reg_day` | componentes de `DataRegistro` | baixo |
 | `uf_match` | `UF_sol == UF` | baixo |
 
 ## Variáveis de histórico — informadas pelo chamador
 
-Dado pessoal; **não embarcadas**. Todas opcionais, padrão `-1`.
+Dado pessoal; **não embarcadas** no artefato. São **oito campos, e o conjunto
+é atômico**: ou você manda os oito, ou o serviço descarta todos e usa o padrão
+`-1`. Não existe "mandar alguns". Meio histórico produziria uma combinação de
+valores que nunca aparece no treinamento, e o escore não teria significado.
 
 | Campo | Significado | Ganho |
 |---|---|---|
-| `n_pedidos_previos_neste_orgao` | pedidos anteriores deste solicitante **a este órgão** | **6,66%** |
-| `prev_reenc_rate_solicitante` | razão entre reencaminhados e total anteriores | 4,44% |
-| `prev_reenc_neste_orgao` | reencaminhamentos anteriores deste solicitante neste órgão | 3,91% |
-| `dias_desde_ultimo_pedido` | recência da última interação | 1,41% |
-| `n_pedidos_previos` | total de pedidos anteriores (agregado) | 1,08% |
-| `n_orgaos_distintos_previos` | amplitude: quantos órgãos distintos já acionou | 0,98% |
-| `prev_reenc_solicitante` | contagem de reencaminhamentos anteriores | baixo |
+| `n_pedidos_previos_neste_orgao` | pedidos anteriores deste solicitante **a este órgão** | **3,34%** |
+| `n_pedidos_previos` | total de pedidos anteriores (agregado) | 1,92% |
+| `n_orgaos_distintos_previos` | amplitude: quantos órgãos distintos já acionou | 1,28% |
+| `dias_desde_ultimo_pedido` | recência da última interação; `-1` se não houver | 1,19% |
+| `prev_reenc_solicitante` | reencaminhamentos anteriores, **numerador** | 0,10% |
+| `prev_reenc_neste_orgao` | idem, restrito a este órgão, **numerador** | 0,01% |
+| `prev_reenc_solicitante_den` | **denominador maturado** do numerador acima | — |
+| `prev_reenc_neste_orgao_den` | **denominador maturado**, restrito a este órgão | — |
 
-> **Defeito conhecido, correção pendente.** Estas sete variáveis são
-> calculadas com soma acumulada deslocada, o que impede a linha de ver a si
-> mesma e o futuro — mas **não** impede ver pedidos do **mesmo dia**, porque
-> `DataRegistro` não tem hora. Auditoria externa mediu **159.320 linhas**
-> recebendo histórico de um pedido do mesmo solicitante no mesmo dia, **22.793**
-> delas com rótulo positivo, e **53.434** consumindo desfecho com menos de 60
-> dias — que em produção ainda não seria conhecido. **Os ganhos atribuídos a
-> estas variáveis estão otimistas e serão republicados.** As tabelas por órgão
-> não têm esse defeito. Detalhes em
-> [`docs/AUDITORIA_EXTERNA.md`](docs/AUDITORIA_EXTERNA.md).
+Os dois denominadores não recebem ganho próprio porque não entram no modelo
+como variáveis: o serviço usa cada par numerador/denominador para calcular
+internamente as razões `prev_reenc_rate_solicitante` (0,11% de ganho) e
+`prev_reenc_rate_neste_orgao` (0,03%). Elas **não** devem ser enviadas pelo
+chamador — eram entradas em versões anteriores e deixaram de ser quando a
+maturação de 60 dias passou a ser aplicada ao denominador.
+
+Por que denominador separado, e não a razão pronta: o denominador só conta
+pedidos cujo desfecho já **maturou** (60 dias). Enviar a razão pronta deixaria o
+chamador escolher, sem saber, um denominador não maturado — e reintroduziria
+pelo contrato o vazamento que a correção 2 eliminou no treinamento.
 
 Solicitante anonimizado (`IdSolicitante == '0'`, 16,9% das linhas) não acumula
 histórico.
@@ -376,10 +398,21 @@ Também são removidas da modelagem as **459 linhas** com
 | `metodo` | string | `"lookup histórico por órgão (sem modelo)"` |
 | `orgao_conhecido` | bool | Idem |
 
-## `GET /health`
+## `POST /health`
 
-Retorna `model_tag`, `n_trees`, `n_features`, `features`,
-`excluded_leakage_fields`, `train_years`, `data_snapshot`.
+**É POST, não GET** — todo endpoint do BentoML declarado com `@bentoml.api` é
+POST, e um `GET /health` devolve HTTP 405. Para a sonda de liveness use
+`GET /healthz`, que é do próprio BentoML:
+
+```bash
+curl -sS -X POST http://localhost:3000/health -H 'Content-Type: application/json' -d '{}'
+```
+
+Retorna `model_tag`, `n_trees`, `n_features`, `features`, `threshold`,
+`queue_fraction`, `caller_supplied_features`, `caller_supplied_default`,
+`caller_supplied_rationale`, `embedded_organ_tables`, `contains_personal_data`,
+`excluded_leakage_fields`, `train_years` e `data_snapshot`. É a forma de
+descobrir o contrato dos oito campos sem ler o código.
 
 ## Erro de vazamento
 
@@ -420,10 +453,13 @@ documentação e os comentários estão em pt_BR.*
 - **`Escolaridade` 76,2% ausente**, `Profissao` 76,9%. A regra de abstenção do
   Termo de Abertura — não pontuar quando falta perfil — recusaria **77,58%** dos
   pedidos, o que não é um produto viável.
-- Variáveis demográficas somam pouco; **84,8% do ganho é identidade do
-  órgão** (ver [`docs/METRICAS.md`](docs/METRICAS.md) para os valores
-  correntes). E elas vêm de um retrato atual do cadastro, não do perfil na
+- Variáveis demográficas somam pouco; **73,71% do ganho é identidade do
+  órgão**. E elas vêm de um retrato atual do cadastro, não do perfil na
   abertura do pedido — limitação H6, sem efeito mensurável medido.
+- **O ganho por variável é mantido à mão neste README e já divergiu três
+  vezes.** Os valores acima foram medidos em 18/09/2026 contra
+  `artifacts/model_arrival.txt`. Gerá-los junto de
+  [`docs/METRICAS.md`](docs/METRICAS.md) é a correção estrutural pendente.
 - Rótulos de 2026 sofrem **censura à direita** (5,75% de positivos entre os
   maturados contra 3,60% nos recentes).
 - As tabelas por órgão são um retrato do fim da janela de dados; exigem reajuste

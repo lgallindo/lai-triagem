@@ -47,21 +47,28 @@ pedido = {
 
 # Histórico do solicitante: dado pessoal, fornecido pelo CHAMADOR, nunca
 # embarcado no artefato. Ver docs/DECISAO_ESTADO_SOLICITANTE.md.
+# O conjunto é ATÔMICO: são estes oito campos, ou nenhum. Mandar sete faz o
+# serviço descartar o conjunto inteiro e pontuar como "sem histórico" -- foi
+# exatamente o defeito que a reauditoria de 18/09/2026 encontrou aqui.
+# As razões `prev_reenc_rate_*` NÃO são enviadas: o serviço as deriva de cada
+# par numerador/denominador, porque o denominador tem de ser o maturado.
 historico_estreante = {
     "n_pedidos_previos": 0,
     "prev_reenc_solicitante": 0,
-    "prev_reenc_rate_solicitante": -1,   # indefinida sem pedido anterior
+    "prev_reenc_solicitante_den": 0,
     "n_pedidos_previos_neste_orgao": 0,
     "prev_reenc_neste_orgao": 0,
+    "prev_reenc_neste_orgao_den": 0,
     "n_orgaos_distintos_previos": 0,
     "dias_desde_ultimo_pedido": -1,
 }
 historico_veterano = {
     "n_pedidos_previos": 80,
     "prev_reenc_solicitante": 3,
-    "prev_reenc_rate_solicitante": 3 / 80,
+    "prev_reenc_solicitante_den": 80,
     "n_pedidos_previos_neste_orgao": 12,
     "prev_reenc_neste_orgao": 0,
+    "prev_reenc_neste_orgao_den": 12,
     "n_orgaos_distintos_previos": 14,
     "dias_desde_ultimo_pedido": 5,
 }
