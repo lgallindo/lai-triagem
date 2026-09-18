@@ -1,0 +1,235 @@
+"""
+Camada de auditoria #13 — a prosa da documentação contra a realidade.
+
+Por que esta camada existe: em 18/09/2026 o `check_docs_numbers.py` passou com
+código zero enquanto o exemplo principal do README devolvia a classificação de
+risco **oposta** à documentada. Aquele guarda confere contagens e o limiar; o
+limiar exibido estava correto, e `0,076869` não era grandeza guardada. Código de
+saída zero significa "nada estourou", não "a documentação é verdadeira".
+
+O que se confere aqui, e cada item corresponde a um defeito real já ocorrido:
+
+  1. Todo payload de `curl` documentado manda o conjunto COMPLETO dos oito
+     campos de histórico, ou nenhum. Nunca um subconjunto -- o contrato é
+     atômico, e mandar sete faz o serviço descartar os oito em silêncio.
+  2. Todo bloco ```json que segue um `curl` bate, campo a campo, com o que o
+     modelo de fato devolve para aquele payload. A pontuação é feita em
+     processo, pelo mesmo caminho de código que o serviço embrulha, para não
+     depender de servidor de pé nem de porta livre.
+  3. Nenhum documento afirma em prosa algo que o artefato contradiz -- por
+     exemplo "todas opcionais" sob um contrato atômico, ou "sem demografia"
+     quando as demográficas estão no modelo.
+  4. Nenhum documento promete `GET` num endpoint que só aceita `POST`.
+
+    uv run python scripts/check_prosa.py
+"""
+
+import json
+import re
+import sys
+from pathlib import Path
+
+import lightgbm as lgb
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from lai_triagem.featurize import Preprocessor, risk_label  # noqa: E402
+
+ART = ROOT / "artifacts"
+prep = Preprocessor.from_json(ART / "preprocessor.json")
+booster = lgb.Booster(model_file=str(ART / "model_arrival.txt"))
+
+CAMPOS_CHAMADOR = set(prep.caller_features)
+DOCS = sorted(list(ROOT.glob("*.md")) + list(ROOT.glob("docs/**/*.md")))
+
+# Os registros de auditoria CITAM os defeitos que encontraram, textualmente.
+# Conferi-los procurando esses mesmos defeitos é erro de categoria: a primeira
+# execução deste guarda acusou cinco divergências, e todas as cinco eram linhas
+# relatando um defeito, não cometendo-o. A isenção é do diretório inteiro, e é
+# impressa em toda execução -- omissão silenciosa é pior que isenção declarada.
+HISTORICOS = [d for d in DOCS if "auditorias" in d.parts]
+VIGENTES = [d for d in DOCS if d not in HISTORICOS]
+
+falhas: list[str] = []
+avisos: list[str] = []
+
+
+def pontua(payload: dict) -> dict:
+    """Reproduz `/score` em processo, campo a campo igual ao service.py."""
+    limpo = {k: v for k, v in payload.items() if v is not None}
+    X = prep.transform(limpo)
+    prob = float(booster.predict(X)[0])
+    cal = prep.calibrate(prob)
+    return {
+        "probabilidade_reencaminhamento": round(prob, 6),
+        "alerta": risk_label(prob, prep.threshold),
+        "threshold": prep.threshold,
+        "probabilidade_calibrada": None if cal is None else round(cal, 6),
+        "calibrada_apenas_para_leitura": True,
+        "orgao_conhecido": prep.organ_is_known(limpo["OrgaoDestinatario"]),
+        "orgao_rate_historica": round(float(X["orgao_rate"].iloc[0]), 6),
+        "orgao_rate_movel_90d": round(float(X["orgao_rate_movel_90d"].iloc[0]), 6),
+        "base_rate_coorte": round(prep.base_rate, 6),
+        "historico_informado": prep.history_supplied(limpo),
+        "historico_parcial_ignorado": prep.history_partial_ignored(limpo),
+    }
+
+
+# ---------------------------------------------------------------------------
+# 1 e 2 — os `curl` documentados, e a resposta que eles de fato produzem
+# ---------------------------------------------------------------------------
+RX_CURL = re.compile(r"curl[^\n]*?-d '(\{.*?\})'", re.S)
+RX_JSON = re.compile(r"```json\n(.*?)\n```", re.S)
+
+n_curls = n_comparados = 0
+for doc in VIGENTES:
+    texto = doc.read_text(encoding="utf-8")
+    for m in RX_CURL.finditer(texto):
+        bruto = m.group(1)
+        try:
+            corpo = json.loads(bruto)
+        except json.JSONDecodeError as e:
+            falhas.append(f"{doc.relative_to(ROOT)}  payload de curl não é JSON válido: {e}")
+            continue
+        if "pedido" not in corpo:
+            continue
+        pedido = corpo["pedido"]
+        n_curls += 1
+        rotulo = f"{doc.relative_to(ROOT)}  curl #{n_curls}"
+
+        # (1) o conjunto de histórico é atômico: ou os oito, ou nenhum.
+        presentes = CAMPOS_CHAMADOR & set(pedido)
+        if presentes and presentes != CAMPOS_CHAMADOR:
+            faltam = sorted(CAMPOS_CHAMADOR - presentes)
+            falhas.append(
+                f"{rotulo}: manda {len(presentes)} de {len(CAMPOS_CHAMADOR)} campos de "
+                f"histórico; faltam {faltam}. O contrato é atômico: o serviço "
+                f"descartaria os {len(presentes)} em silêncio.")
+
+        # Campos que parecem de histórico mas não estão no contrato.
+        derivados = set(prep.meta.get("derived_from_caller", []))
+        intrusos = derivados & set(pedido)
+        if intrusos:
+            falhas.append(
+                f"{rotulo}: manda {sorted(intrusos)}, que o serviço deriva "
+                f"internamente e ignora na entrada.")
+
+        # (2b) Nem todo `curl` é seguido de bloco ```json: dois deles têm o
+        # resultado citado em PROSA ("cai para 0,337359", "Retorna 0.478643").
+        # Prosa é justamente onde número obsoleto sobrevive, então se a prosa
+        # logo abaixo cita algo com cara de probabilidade, tem de ser a certa.
+        depois = texto[m.end():m.end() + 700]
+        corta = depois.find("```json")
+        prosa = depois if corta == -1 else depois[:corta]
+        citados = {c.replace(",", ".") for c in re.findall(r"\b0[.,]\d{6}\b", prosa)}
+        if citados:
+            if "/score_baseline" in m.group(0):
+                esperado = round(float(prep.organ_rate.get(
+                    pedido["OrgaoDestinatario"], prep.base_rate)), 6)
+            else:
+                esperado = pontua(pedido)["probabilidade_reencaminhamento"]
+            if f"{esperado:.6f}" not in citados:
+                falhas.append(
+                    f"{rotulo}: a prosa cita {sorted(citados)} mas este payload "
+                    f"produz {esperado:.6f}")
+
+        # (2) o bloco ```json seguinte tem de bater com a resposta real.
+        seguinte = RX_JSON.search(texto[m.end():])
+        if not seguinte:
+            continue
+        try:
+            documentado = json.loads(seguinte.group(1))
+        except json.JSONDecodeError:
+            continue
+        if "probabilidade_reencaminhamento" not in documentado:
+            continue
+
+        n_comparados += 1
+        try:
+            real = pontua(pedido)
+        except Exception as e:  # payload documentado que nem pontua é defeito
+            falhas.append(f"{rotulo}: o payload documentado não pontua: {e!r}")
+            continue
+        for campo, valor_doc in documentado.items():
+            if campo not in real:
+                avisos.append(f"{rotulo}: documenta `{campo}`, que /score não devolve")
+                continue
+            valor_real = real[campo]
+            if isinstance(valor_doc, float) and isinstance(valor_real, float):
+                bate = abs(valor_doc - valor_real) < 1e-6
+            else:
+                bate = valor_doc == valor_real
+            if not bate:
+                falhas.append(
+                    f"{rotulo}: campo `{campo}` documentado como {valor_doc!r}, "
+                    f"real {valor_real!r}")
+
+# ---------------------------------------------------------------------------
+# 3 — afirmações em prosa que o artefato contradiz
+# ---------------------------------------------------------------------------
+tem_demografia = any(
+    c in prep.feature_order
+    for c in ("Escolaridade", "Profissao", "Genero", "idade"))
+atomico = bool(prep.meta.get("caller_supplied_atomic"))
+
+# (regex, condição para ser defeito, explicação)
+PROIBIDAS = [
+    (re.compile(r"[Tt]odas opcionais"), atomico,
+     "diz 'todas opcionais' mas o contrato do chamador é atômico"),
+    (re.compile(r"[Ss]em dado demogr[áa]fico algum|n[ãa]o usa.{0,20}demogr[áa]fic"),
+     tem_demografia,
+     "nega o uso de demografia, mas há variáveis demográficas no modelo"),
+    (re.compile(r"corre[çc][ãa]o pendente"), True,
+     "anuncia correção pendente; confirme que não foi já corrigida"),
+]
+
+for doc in VIGENTES:
+    for n, linha in enumerate(doc.read_text(encoding="utf-8").splitlines(), 1):
+        if any(m in linha for m in ("anteriores ao Fix", "já foi muito melhor",
+                                    "ersões anteriores", "antes do Fix",
+                                    "era vazamento", "Registro histórico")):
+            continue
+        for rx, condicao, porque in PROIBIDAS:
+            if condicao and rx.search(linha):
+                alvo = falhas if "pendente" not in porque else avisos
+                alvo.append(f"{doc.relative_to(ROOT)}:{n}  {porque}: {linha.strip()[:90]}")
+
+# ---------------------------------------------------------------------------
+# 4 — método HTTP: todo endpoint `@bentoml.api` é POST
+# ---------------------------------------------------------------------------
+servico = (ROOT / "service.py").read_text(encoding="utf-8")
+endpoints = re.findall(r"@bentoml\.api\s*\n\s*def\s+(\w+)", servico)
+for doc in VIGENTES:
+    for n, linha in enumerate(doc.read_text(encoding="utf-8").splitlines(), 1):
+        # Uma linha que cita o 405 está EXPLICANDO que GET falha, não
+        # prometendo GET. Distinguir afirmação de citação é o ponto difícil de
+        # auditar prosa, e é onde este guarda errou na primeira execução.
+        if "405" in linha:
+            continue
+        for ep in endpoints:
+            # `/healthz` é sonda do próprio BentoML e é GET de verdade.
+            if re.search(rf"GET\s+`?/{ep}`?(?![a-z])", linha):
+                falhas.append(
+                    f"{doc.relative_to(ROOT)}:{n}  promete GET /{ep}, mas "
+                    f"`@bentoml.api` só aceita POST (devolve HTTP 405)")
+
+# ---------------------------------------------------------------------------
+print(f"documentos vigentes varridos: {len(VIGENTES)}")
+print(f"isentos por serem registro histórico: {len(HISTORICOS)} "
+      f"({', '.join(d.name for d in HISTORICOS)})")
+print(f"payloads de curl conferidos: {n_curls}")
+print(f"respostas comparadas:        {n_comparados}")
+print(f"endpoints lidos do service:  {endpoints}")
+
+if avisos:
+    print(f"\n{len(avisos)} aviso(s), não bloqueiam:")
+    for a in avisos:
+        print(f"  ~ {a}")
+
+if falhas:
+    print(f"\nFALHOU: {len(falhas)} divergência(s) entre prosa e realidade")
+    for f in falhas:
+        print(f"  ✗ {f}")
+    sys.exit(1)
+
+print("\nOK — a prosa não contradiz o artefato nem o serviço")
