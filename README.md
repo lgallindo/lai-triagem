@@ -165,22 +165,41 @@ uv run bentoml serve service.py:LaiTriagem
 O serviço sobe em `http://localhost:3000`. A documentação interativa fica em
 `http://localhost:3000/docs`.
 
-**Se aparecer `OSError: [Errno 98] Address already in use`:** a porta 3000 já
-está ocupada, quase sempre por um serviço que você mesmo deixou rodando antes.
-Descubra quem é e encerre:
-
-```bash
-ss -ltnp | grep :3000          # mostra o processo que está na porta
-pkill -f "bentoml serve"       # encerra um serviço anterior
-```
-
-Ou use outra porta:
+**Se aparecer `OSError: [Errno 98] Address already in use`:** alguém já está na
+porta 3000. **A saída mais simples e segura é trocar de porta** — não precisa
+descobrir quem é, nem encerrar nada:
 
 ```bash
 uv run bentoml serve service.py:LaiTriagem --port 3001
 ```
 
-**Para confirmar que subiu**, antes de tentar o Passo 5:
+Se trocar de porta, troque também nos comandos seguintes: onde este README
+escrever `localhost:3000`, use `localhost:3001`.
+
+> **Por que não sair matando processo.** Se você está no WSL, a porta pode
+> estar ocupada por um programa do **Windows**, não do Linux — o Docker Desktop
+> é o caso mais comum, porque o WSL e o Windows compartilham o `localhost`.
+> Nesse caso `ss -ltnp` mostra a porta ocupada **sem dizer de quem é**, assim:
+>
+> ```
+> LISTEN 0  4096  *:3000  *:*
+> ```
+>
+> A coluna do processo vem vazia porque o processo não está no Linux. Então
+> `pkill` não resolve, e insistir só te faz encerrar algo que você não queria.
+> Quem estiver no Windows pode conferir com
+> `Get-NetTCPConnection -LocalPort 3000 -State Listen`.
+
+Se `ss -ltnp` **mostrar** um nome de processo e for um `bentoml serve` que você
+mesmo deixou para trás, aí sim encerre pelo PID que ele indicou:
+
+```bash
+ss -ltnp | grep :3000          # se aparecer um PID, é processo do Linux
+kill <PID>                     # encerre pelo PID, não por nome
+```
+
+**Para confirmar que subiu**, antes de tentar o Passo 5 (ajuste a porta se você
+trocou):
 
 ```bash
 curl -sS http://localhost:3000/healthz && echo " -> de pé"
