@@ -17,6 +17,12 @@ aos pedidos com maior chance de roteamento incorreto.
 > ela empatava com o modelo. Hoje não empata mais, e a auditoria completa está em
 > [`docs/VERIFICATION.md`](docs/VERIFICATION.md) e
 > [`docs/CAMPOS_POST_HOC.md`](docs/CAMPOS_POST_HOC.md).
+>
+> **Este arquivo é o tutorial**, e vai do zero à primeira resposta HTTP. A
+> avaliação do modelo — o resultado, como ele encolheu sob auditoria, e as sete
+> limitações conhecidas — está em
+> [`docs/RESULTADOS.md`](docs/RESULTADOS.md). Leia antes de usar o escore para
+> decidir qualquer coisa.
 
 ## Resultado principal
 
@@ -41,58 +47,23 @@ identidade do órgão**. Todo o histórico do solicitante soma **10,33%**. Conta
 também a idade do órgão, a identidade do órgão chega a 74,92%. O modelo é,
 essencialmente, a tabela de consulta com enfeites.
 
-> ### Este número já foi muito melhor, e era vazamento
->
-> Versões anteriores deste README anunciavam **+26,4%** sobre a linha de base
-> (precisão@5% de 30,99%). Auditoria externa independente mostrou que o ganho
-> vinha de dois defeitos nas variáveis de histórico:
->
-> - **vazamento do mesmo dia:** 159.320 linhas recebiam histórico de um pedido
->   do mesmo solicitante no mesmo dia, 22.793 com rótulo positivo;
-> - **desfecho imaturo:** 53.434 linhas consumiam resultado de pedido com menos
->   de 60 dias, e 523.719 das taxas móveis incorporavam algum — desfecho que em
->   produção ainda não seria conhecido.
->
-> Corrigidos os dois (defasagem de maturação nas variáveis de desfecho, ordem
-> `(data, IdPedido)` nas de contagem), o ganho desapareceu. Registro completo em
-> [`docs/auditorias/`](docs/auditorias/INDICE.md).
+> **Este número já foi muito melhor, e era vazamento.** Versões anteriores
+> anunciavam +26,4% sobre a linha de base. Três auditorias independentes
+> mostraram que o ganho vinha de defeitos nas variáveis de histórico, e ele
+> desapareceu quando foram corrigidos. A história completa, com os números e o
+> que cada auditoria achou, está em
+> [`docs/RESULTADOS.md`](docs/RESULTADOS.md).
 
-**A conclusão original do projeto volta a valer:** com variáveis honestas de
-chegada, praticamente todo o sinal recuperável é "alguns órgãos são
-cronicamente mal endereçados", e uma tabela de consulta de uma linha captura
-isso.
-
-Sobre as duas janelas móveis, vale registrar uma reviravolta. Durante um tempo
-este README dizia que a defasagem de 60 dias havia esvaziado a janela de 90 dias
-(2,81% do ganho) em favor da de 365 (10,20%). **Era artefato de um defeito.** O
-prior de suavização vinha da taxa-base de todo o período, 2025 e 2026 inclusive
-— vazamento H8, corrigido em 18/09/2026. Com o prior honesto, a ordem se
-inverte: a janela de 90 dias vale **9,25%** e a de 365 vale **7,10%**. A janela
-curta é a que informa; era o vazamento que a fazia parecer inútil.
-
-## As variáveis demográficas: usadas, com uma limitação declarada
+## As variáveis demográficas
 
 O modelo **usa** escolaridade, profissão, gênero e residência do solicitante,
-porque o Termo de Abertura do projeto as inclui explicitamente no escopo.
+porque o Termo de Abertura do projeto as inclui no escopo. Elas somam pouco do
+ganho, e vêm com uma limitação declarada (**H6**): o cadastro da CGU é um
+retrato de hoje, não o perfil de quando o pedido foi feito.
 
-Há uma limitação conhecida, chamada **H6**: a tabela `Solicitantes` da CGU é um
-**retrato de hoje**, não o perfil de quando o pedido foi feito. A prova é direta
-— das 22.963 pessoas que aparecem em mais de um ano, **nenhuma** muda de
-escolaridade ou profissão em cinco anos, e 100% dos registros são idênticos
-entre 2022 e 2026. Ou seja, um pedido de 2022 carrega o perfil de 2026.
-
-Testamos se isso prejudica o modelo. **Não prejudica de forma mensurável:** o
-ganho das demográficas é até *maior* no treino de 2022 (+0,0121 de PR-AUC), onde
-o retrato está mais defasado, do que no de 2024 (+0,0052). Sem tendência, sem
-contaminação detectável. Remover as variáveis também não mudaria nada — na
-verdade o modelo fica marginalmente **melhor** sem elas (PR-AUC 0,1883 contra
-0,1855), diferença dentro do ruído. Detalhes em
-`scripts/experiment_h6_mitigacao.py`.
-
-> Os dois números de ganho por ano acima (+0,0121 e +0,0052) foram medidos
-> **antes** da correção de H7 e H8, em 17/09/2026, e ainda não foram
-> remedidos. A conclusão qualitativa — sem tendência detectável — não depende
-> deles, mas os valores exatos vão mudar.
+Isso foi medido e não prejudica o modelo de forma detectável. A prova, os
+números e o contrafactual de removê-las estão em
+[`docs/RESULTADOS.md`](docs/RESULTADOS.md).
 
 O dado pessoal que o serviço recebe — perfil e contadores de histórico — **não é
 retido no artefato**. Ver
@@ -511,6 +482,7 @@ These are unavailable when a request arrives; see docs/VERIFICATION.md.
 
 | Caminho | Papel |
 |---|---|
+| [`docs/RESULTADOS.md`](docs/RESULTADOS.md) | O relatório de pesquisa: o resultado, como ele encolheu, e as limitações. Este README é o tutorial; aquele é a avaliação |
 | [`docs/METRICAS.md`](docs/METRICAS.md) | **Gerado** por train.py; fonte única de todo número de desempenho |
 | [`docs/DECISAO_ESTADO_SOLICITANTE.md`](docs/DECISAO_ESTADO_SOLICITANTE.md) | Onde vive o histórico do solicitante e por quê — decisão de proteção de dados |
 | [`docs/auditorias/`](docs/auditorias/INDICE.md) | Auditorias, um arquivo por data: o que outros agentes — e o roteiro mecânico — encontraram neste trabalho |
@@ -556,26 +528,10 @@ todas as guardas de então passavam. Ver
 
 # Limitações conhecidas
 
-- **`Escolaridade` 76,2% ausente**, `Profissao` 76,9%. A regra de abstenção do
-  Termo de Abertura — não pontuar quando falta perfil — recusaria **77,58%** dos
-  pedidos, o que não é um produto viável.
-- Variáveis demográficas somam pouco; **72,13% do ganho é identidade do
-  órgão**. E elas vêm de um retrato atual do cadastro, não do perfil na
-  abertura do pedido — limitação H6, sem efeito mensurável medido.
-- **O ganho por variável é mantido à mão neste README e já divergiu três
-  vezes.** Os valores acima foram medidos em 18/09/2026 contra
-  `artifacts/model_arrival.txt`. Gerá-los junto de
-  [`docs/METRICAS.md`](docs/METRICAS.md) é a correção estrutural pendente.
-- Rótulos de 2026 sofrem **censura à direita** (5,75% de positivos entre os
-  maturados contra 3,60% nos recentes).
-- As tabelas por órgão são um retrato do fim da janela de dados; exigem reajuste
-  periódico, sem o qual `orgao_rate_movel_90d` envelhece e perde valor.
-- 45,8% das linhas não têm histórico de solicitante aproveitável (16,9%
-  anonimizadas, 28,9% de quem pediu uma vez só), então o ganho vem de pouco
-  mais da metade do volume.
-- O limiar é ponto de operação da fila de 10%, não probabilidade calibrada, e
-  muda a cada retreinamento. Valor corrente em
-  [`docs/METRICAS.md`](docs/METRICAS.md).
+São sete, e vale ler antes de confiar no escore: desde `Escolaridade` faltar em
+76% dos pedidos até as tabelas por órgão envelhecerem sem reajuste. A lista
+completa, com números, está em
+[`docs/RESULTADOS.md`](docs/RESULTADOS.md#limitações-conhecidas).
 
 # Dados e licença
 
