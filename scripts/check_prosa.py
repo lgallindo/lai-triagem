@@ -142,11 +142,16 @@ for doc in VIGENTES:
                 pedido["OrgaoDestinatario"], prep.base_rate)), 6)
         else:
             esperado = pontua(pedido)["probabilidade_reencaminhamento"]
-        alvo = f"{esperado:.6f}"
-        if alvo not in regiao and alvo.replace(".", ",") not in regiao:
+        # Comparação NUMÉRICA, não textual: `json.dumps` grava `0.31659` e o
+        # formato de seis casas produz `0.316590`. Os dois são o mesmo número,
+        # e a primeira versão desta regra reprovava a diferença de zero à
+        # direita — divergência entre duas ferramentas minhas, não da prosa.
+        citados = [float(t.replace(",", "."))
+                   for t in re.findall(r"\b\d+[.,]\d{3,6}\b", regiao)]
+        if not any(abs(c - esperado) < 1e-6 for c in citados):
             falhas.append(
                 f"{rotulo}: nem o bloco de resposta nem a prosa até o próximo "
-                f"comando citam {alvo}, que é o que este payload produz")
+                f"comando citam {esperado:.6f}, que é o que este payload produz")
 
         # (2) o bloco ```json seguinte tem de bater com a resposta real.
         seguinte = RX_JSON.search(texto[m.end():])

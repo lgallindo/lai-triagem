@@ -45,6 +45,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 # duplicados aqui e em mais cinco scripts, e a correção do H9 alcançou só um
 # deles. Reexportados como nomes de módulo porque `experiment_h7_h8.py` e
 # `verify_h7_alinhamento.py` os acessam como `train.MATURITY_DAYS`.
+from lai_triagem.codificacao import orgao_rate_crossfit, taxa_suavizada  # noqa: E402
 from lai_triagem.config import (  # noqa: E402
     ART,
     BIRTH_YEARS,
@@ -355,10 +356,13 @@ def build_features(df, births):
 
 
 def fit_organ_rate(train, prior_weight=PRIOR_ORGAO):
-    """Taxa histórica suavizada de reencaminhamento por órgão, ajustada SÓ NO TREINO."""
-    base = train.y.mean()
-    g = train.groupby("OrgaoDestinatario").y.agg(["sum", "count"])
-    return ((g["sum"] + prior_weight * base) / (g["count"] + prior_weight)).to_dict(), float(base)
+    """Taxa histórica suavizada por órgão, ajustada SÓ NO TREINO.
+
+    P1: a implementação mora em `lai_triagem.codificacao`, usada também pelo
+    experimento do H10. Aqui fica só o nome antigo, para não quebrar quem
+    importa `train.fit_organ_rate`.
+    """
+    return taxa_suavizada(train, prior_weight)
 
 
 def encode(df, cats, cat_maps=None):
@@ -611,9 +615,18 @@ def main():
     print(f"taxa de reenc.  treino {tr.y.mean()*100:.2f}%  val {va.y.mean()*100:.2f}%  "
           f"teste {te.y.mean()*100:.2f}%")
 
+    # H10 -- CROSS-FITTING. O mapa do treino inteiro vai para o artefato e para
+    # validação/teste, porque é o que a produção consulta. Mas as linhas de
+    # TREINO recebem a taxa calculada FORA da própria dobra: sem isso, cada
+    # linha carregaria o próprio rótulo na sua maior variável, e o modelo
+    # aprenderia a confiar numa `orgao_rate` melhor do que jamais será em
+    # produção. Medido em scripts/experiment_h10_crossfit.py: precisão@5% sobe
+    # de 21,79% para 24,23%, e a distância para a linha de base encolhe de
+    # -3,01 pp para -0,57 pp.
     organ_rate, base = fit_organ_rate(tr)
-    for d in (tr, va, te):
+    for d in (va, te):
         d["orgao_rate"] = d.OrgaoDestinatario.map(organ_rate).fillna(base).astype("float32")
+    tr["orgao_rate"] = orgao_rate_crossfit(tr)
 
     # Tabelas por órgão embarcadas no artefato: estado do órgão no FIM da janela
     # de treino+validação, que é o que um pedido novo deve consultar. Exige
