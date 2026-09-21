@@ -19,7 +19,6 @@ H4  Quão utilizáveis são, afinal, as variáveis demográficas?
 
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 INTERIM = Path.home() / "lai-triagem" / "data" / "interim"
@@ -62,7 +61,7 @@ print("=" * 78)
 print("H3  prazo_dias — arrival-time or rewritten after the fact?")
 print("=" * 78)
 print(f"rows {len(df):,}   prazo_dias non-null {df.prazo_dias.notna().sum():,}")
-print(f"\noverall distribution of prazo_dias:")
+print("\noverall distribution of prazo_dias:")
 print(df.prazo_dias.value_counts().head(12).sort_index().to_string())
 
 print("\n-- by FoiProrrogado (the decisive split) --")

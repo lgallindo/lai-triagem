@@ -45,7 +45,8 @@ ALVOS = [README] + [p for p in sorted((ROOT / "docs").glob("*.md"))
 prep = Preprocessor.from_json(ART / "preprocessor.json")
 booster = lgb.Booster(model_file=str(ART / "model_arrival.txt"))
 g = booster.feature_importance(importance_type="gain")
-GANHO = {n: 100.0 * v / float(g.sum()) for n, v in zip(booster.feature_name(), g)}
+GANHO = {n: 100.0 * v / float(g.sum())
+         for n, v in zip(booster.feature_name(), g, strict=True)}
 
 mudancas = []
 

@@ -207,7 +207,8 @@ def main():
     n = len(df)
     anon = df.is_anonymous.eq(1)
     print(f"  linhas                                        {n:,}")
-    print(f"  IdSolicitante == '0' (anonimizado)            {anon.sum():,} ({100*anon.mean():.2f}%)")
+    print(f"  IdSolicitante == '0' (anonimizado)            "
+          f"{anon.sum():,} ({100*anon.mean():.2f}%)")
     print(f"  Escolaridade ausente                          {df.escolaridade_missing.sum():,}"
           f" ({100*df.escolaridade_missing.mean():.2f}%)")
     print(f"    ...destes, com IdSolicitante VÁLIDO         "

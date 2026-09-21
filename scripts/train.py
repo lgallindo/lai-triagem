@@ -451,7 +451,8 @@ def evaluate(name, y, p):
 
 
 def run_variant(name, cats, nums, tr, va, te, mask):
-    print(f"\n{'=' * 78}\nVARIANTE {name}   ({len(cats)} categóricas + {len(nums)} numéricas)\n{'=' * 78}")
+    print(f"\n{'=' * 78}\nVARIANTE {name}   "
+          f"({len(cats)} categóricas + {len(nums)} numéricas)\n{'=' * 78}")
     cols = cats + nums
     e_tr, maps = encode(tr, cats)
     e_va, _ = encode(va, cats, maps)
@@ -557,7 +558,8 @@ def equity_audit(te, p):
     """A partir do Fix 5, `Escolaridade` NÃO é variável do modelo (H6). Auditar
     por ela ficou mais forte: mede disparidade numa característica que o modelo
     não observa, logo qualquer viés vem da estrutura do problema, não do ajuste."""
-    print(f"\n{'=' * 78}\nAUDITORIA DE EQUIDADE — composição da fila de {QUEUE_FRAC*100:.0f}% (TAP 6.1)\n{'=' * 78}")
+    print(f"\n{'=' * 78}\nAUDITORIA DE EQUIDADE — composição da fila de "
+          f"{QUEUE_FRAC*100:.0f}% (TAP 6.1)\n{'=' * 78}")
     k = int(round(QUEUE_FRAC * len(te)))
     flagged = te.iloc[np.argsort(-p)[:k]]
     for col in ("Escolaridade", "Genero", "TipoDemandante"):
@@ -706,7 +708,8 @@ def main():
                   f"{c['pr_auc']:.4f}   {100*(c['pr_auc']-a['pr_auc']):+.2f} pp")
     print("  Nenhum dos dois é realizável em produção; ver docs/VERIFICATION.md.")
 
-    print(f"\n{'=' * 78}\nH6 -- CONTRAFACTUAL: O QUE SE PERDERIA REMOVENDO AS DEMOGRÁFICAS\n{'=' * 78}")
+    print(f"\n{'=' * 78}\nH6 -- CONTRAFACTUAL: O QUE SE PERDERIA "
+          f"REMOVENDO AS DEMOGRÁFICAS\n{'=' * 78}")
     for split in ("val", "test_matured"):
         a, c = m_prod[split], m_semdem[split]
         print(f"  {split:<13} PR-AUC produção (com) {a['pr_auc']:.4f} vs sem "
@@ -736,7 +739,8 @@ def main():
     calib = fit_calibration(va.y.to_numpy(), pva, te.y.to_numpy()[mask],
                             b_prod.predict(pd.DataFrame(
                                 {**{c: encode(te, CAT_PROD, maps_prod)[0][c] for c in CAT_PROD},
-                                 **{c: pd.to_numeric(te[c], errors="coerce").astype("float32").to_numpy()
+                                 **{c: pd.to_numeric(te[c], errors="coerce")
+                                        .astype("float32").to_numpy()
                                     for c in NUM_PROD_FINAL}}, columns=cols_prod))[mask])
 
     meta = {

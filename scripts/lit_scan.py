@@ -67,6 +67,6 @@ for q in QUERIES:
     time.sleep(1.1)
 
 print(f"\n\n{'#' * 78}\nDEDUPED, RANKED BY CITATIONS ({len(seen)} unique works)\n{'#' * 78}")
-for title, cit, yr, venue, doi in sorted(seen.values(), key=lambda t: -t[1])[:35]:
+for title, cit, yr, venue, _doi in sorted(seen.values(), key=lambda t: -t[1])[:35]:
     print(f"[{yr}] cit={cit:<6} {title[:100]}")
     print(f"        {venue[:88]}")

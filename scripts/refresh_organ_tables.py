@@ -43,7 +43,6 @@ import sys
 import time
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 ROOT = Path.home() / "lai-triagem"
@@ -137,7 +136,8 @@ def main():
             worst = d.abs().sort_values(ascending=False).head(5)
             print("  maiores movimentos:")
             for organ in worst.index:
-                print(f"    {organ[:54]:<54} {old[organ]:.4f} -> {rate[organ]:.4f}  ({d[organ]:+.4f})")
+                print(f"    {organ[:54]:<54} {old[organ]:.4f} -> "
+                      f"{rate[organ]:.4f}  ({d[organ]:+.4f})")
         print(f"  órgãos sem volume na janela recaem na taxa-base {base:.4f}: "
               f"{len(set(meta["organ_rate"]) - set(rate.index)):,}")
 
@@ -159,7 +159,8 @@ def main():
     new_tables["organ_tables_window_end"] = end.strftime("%Y-%m-%d")
 
     # Guarda-corpos: nada fora da lista permitida pode mudar.
-    assert set(new_tables) <= REFRESHABLE, f"tentativa de alterar chave proibida: {set(new_tables) - REFRESHABLE}"
+    assert set(new_tables) <= REFRESHABLE, (
+        f"tentativa de alterar chave proibida: {set(new_tables) - REFRESHABLE}")
     print(f"\nchaves a gravar: {sorted(new_tables)}")
     print(f"chaves preservadas: organ_rate ({len(meta["organ_rate"])} entradas), "
           f"category_codes, threshold ({meta['threshold']}), feature_order, o modelo")
