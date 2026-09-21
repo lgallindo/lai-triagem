@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -79,8 +80,17 @@ class Preprocessor:
         self.check_no_leakage(payload)
         p = {k: (v.strip() if isinstance(v, str) else v) for k, v in payload.items()}
 
-        reg = pd.to_datetime(p.get("DataRegistro"), format="%d/%m/%Y", errors="coerce")
-        nasc = pd.to_datetime(p.get("DataNascimento"), format="%d/%m/%Y", errors="coerce")
+        # O payload vem de JSON, então todo valor é `Any` e pode ser `None`.
+        # `pd.to_datetime(None)` não está em nenhuma sobrecarga — o mypy
+        # apontou — e `""` produz o mesmo `NaT` que o caminho ausente já
+        # tratava. Normalizar aqui deixa o tipo honesto sem mudar o resultado.
+        def _data(chave: str) -> pd.Timestamp | Any:
+            bruto = p.get(chave)
+            return pd.to_datetime(str(bruto) if bruto is not None else "",
+                                  format="%d/%m/%Y", errors="coerce")
+
+        reg = _data("DataRegistro")
+        nasc = _data("DataNascimento")
 
         idade = np.nan
         if pd.notna(reg) and pd.notna(nasc):
@@ -89,7 +99,11 @@ class Preprocessor:
             if not (10 <= idade <= 110):
                 idade = np.nan
 
-        organ = p.get("OrgaoDestinatario")
+        # `OrgaoDestinatario` é obrigatório, mas o payload é JSON: se vier
+        # ausente ou nulo, `""` cai no recuo da taxa-base, que é o mesmo
+        # comportamento de órgão desconhecido. Sem isto, `dict.get(None)` é
+        # erro de tipo — e o mypy tinha razão em reclamar.
+        organ = str(p.get("OrgaoDestinatario") or "")
         # Idade do órgão: dias entre o registro e a primeira aparição do órgão.
         idade_orgao = np.nan
         born = self.organ_birth.get(organ)
@@ -138,8 +152,11 @@ class Preprocessor:
 
         row: dict[str, object] = {}
         for c in self.categorical:
-            # Nível inédito ou ausente vira -1, que o LightGBM trata como faltante.
-            row[c] = self.codes.get(c, {}).get(p.get(c), -1)
+            # Nível inédito ou ausente vira -1, que o LightGBM trata como
+            # faltante. `str(... or "")` porque o payload vem de JSON e o valor
+            # pode ser `None`: a string vazia não é categoria conhecida, logo
+            # cai no mesmo -1 que `None` já produzia.
+            row[c] = self.codes.get(c, {}).get(str(p.get(c) or ""), -1)
         for c in self.numeric:
             row[c] = derived.get(c, p.get(c, np.nan))
 

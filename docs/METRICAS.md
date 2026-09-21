@@ -1,6 +1,6 @@
 # Métricas — GERADO AUTOMATICAMENTE, NÃO EDITAR À MÃO
 
-Gerado por `scripts/train.py` em 2026-09-21T12:59:01Z.
+Gerado por `scripts/train.py` em 2026-09-21T14:54:50Z.
 Qualquer número de desempenho citado em outro documento deve vir daqui.
 
 ## Artefato
@@ -8,8 +8,8 @@ Qualquer número de desempenho citado em outro documento deve vir daqui.
 | Item | Valor |
 |---|---|
 | Variáveis | **31** |
-| Árvores | **160** |
-| Limiar (fila de 10%) | **0.166564** |
+| Árvores | **56** |
+| Limiar (fila de 10%) | **0.159391** |
 | Retrato dos dados | `20260914` |
 | Anos de treino | [2022, 2023, 2024] |
 | Maturação | 60 dias |
@@ -21,15 +21,15 @@ Qualquer número de desempenho citado em outro documento deve vir daqui.
 | Escore | ROC-AUC | PR-AUC | prec@1% | prec@5% | prec@10% |
 |---|---|---|---|---|---|
 | Consulta por órgão (sem modelo) | 0.7434 | 0.1641 | 35.67% | 24.80% | 17.86% |
-| LightGBM | 0.7633 | 0.1789 | 36.93% | 21.79% | 17.84% |
-| Diferença relativa | — | +9.0% | +3.5% | **-12.1%** | -0.1% |
+| LightGBM | 0.7726 | 0.1901 | 36.47% | 24.23% | 19.61% |
+| Diferença relativa | — | +15.8% | +2.2% | **-2.3%** | +9.7% |
 
 ## Custo dos vazamentos (variantes diagnósticas, nunca implantadas)
 
 | Variante | PR-AUC teste maturado | vs honesta |
 |---|---|---|
-| `with_assunto` | 0.1624 | -1.65 pp |
-| `LEAKY_with_prazo` | 0.4051 | +22.62 pp |
+| `with_assunto` | 0.1613 | -2.88 pp |
+| `LEAKY_with_prazo` | 0.4094 | +21.93 pp |
 
 ## Ressalvas que não se leem nos números
 
