@@ -17,23 +17,24 @@ H4  Quão utilizáveis são, afinal, as variáveis demográficas?
     quantifica a falha de junção.
 """
 
+import sys
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
-INTERIM = Path.home() / "lai-triagem" / "data" / "interim"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from lai_triagem.config import INTERIM  # noqa: E402
+from lai_triagem.dados import limpar  # noqa: E402
+
 SNAP = "20260914"
 READ_KW = dict(sep=";", encoding="utf-16", dtype=str, na_values=[" ", ""], keep_default_na=True)
 YEARS = [2022, 2023, 2024, 2025, 2026]
 
 
 def _clean(df):
-    df.columns = [c.strip() for c in df.columns]
-    for c in df.columns:
-        if df[c].dtype == object:
-            df[c] = df[c].str.strip()
-    return df
+    # P1: uma implementacao so, em lai_triagem/dados.py. Esta funcao ja esteve
+    # duplicada em seis arquivos e a correcao do H9 alcancou apenas um.
+    return limpar(df)
 
 
 frames = []
@@ -59,7 +60,7 @@ print("=" * 78)
 print("H3  prazo_dias — arrival-time or rewritten after the fact?")
 print("=" * 78)
 print(f"rows {len(df):,}   prazo_dias non-null {df.prazo_dias.notna().sum():,}")
-print(f"\noverall distribution of prazo_dias:")
+print("\noverall distribution of prazo_dias:")
 print(df.prazo_dias.value_counts().head(12).sort_index().to_string())
 
 print("\n-- by FoiProrrogado (the decisive split) --")

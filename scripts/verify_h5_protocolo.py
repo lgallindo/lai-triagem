@@ -17,12 +17,15 @@ Testes:
   T4  o sequencial é realmente sequencial no tempo? (correlação com a data)
 """
 
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-INTERIM = Path.home() / "lai-triagem" / "data" / "interim"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from lai_triagem.config import INTERIM  # noqa: E402
+
 READ_KW = dict(sep=";", encoding="utf-16", dtype=str, na_values=[" ", ""], keep_default_na=True)
 COLS = ["ProtocoloPedido", "OrgaoDestinatario", "DataRegistro", "FoiReencaminhado", "Situacao"]
 

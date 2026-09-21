@@ -62,7 +62,10 @@ exige(list(ordem) == list(nomes_booster),
       "feature_order NÃO está na mesma ordem que o booster; o LightGBM recebe "
       "posições, então isto produziria escore errado sem erro")
 if list(ordem) != list(nomes_booster):
-    for i, (a, b) in enumerate(zip(ordem, nomes_booster)):
+    # `strict=False` de proposito: se os comprimentos divergirem, isso ja
+    # foi reportado acima por `exige`. Aqui so se procura a PRIMEIRA
+    # posicao divergente, e truncar no menor e o comportamento desejado.
+    for i, (a, b) in enumerate(zip(ordem, nomes_booster, strict=False)):
         if a != b:
             falhas.append(f"  primeira divergência na posição {i}: "
                           f"json={a!r} booster={b!r}")

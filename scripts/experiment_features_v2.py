@@ -50,18 +50,20 @@ import pandas as pd
 from sklearn.metrics import average_precision_score, roc_auc_score
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from lai_triagem.config import INTERIM, READ_KW  # noqa: E402
+from lai_triagem.dados import limpar  # noqa: E402
 from scripts.train import (  # noqa: E402
     build_features as train_build_features,
-    organ_birth_table as train_organ_birth_table,
-    load_cohort as train_load_cohort,
+)
+from scripts.train import (
     organ_rolling as train_organ_rolling,
+)
+from scripts.train import (
     precision_at_k,
 )
 
-ROOT = Path.home() / "lai-triagem"
-INTERIM = ROOT / "data" / "interim"
+# P5/P1: raiz, INTERIM e READ_KW vêm de lai_triagem.config.
 SNAP = "20260914"
-READ_KW = dict(sep=";", encoding="utf-16", dtype=str, na_values=[" ", ""], keep_default_na=True)
 
 TRAIN_YEARS, VAL_YEAR, TEST_YEAR = [2022, 2023, 2024], 2025, 2026
 COHORT = TRAIN_YEARS + [VAL_YEAR, TEST_YEAR]
@@ -100,20 +102,18 @@ GROUPS = {
 }
 
 REGIAO = {
-    **{uf: "N" for uf in ["AC", "AP", "AM", "PA", "RO", "RR", "TO"]},
-    **{uf: "NE" for uf in ["AL", "BA", "CE", "MA", "PB", "PE", "PI", "RN", "SE"]},
-    **{uf: "CO" for uf in ["DF", "GO", "MT", "MS"]},
-    **{uf: "SE" for uf in ["ES", "MG", "RJ", "SP"]},
-    **{uf: "S" for uf in ["PR", "RS", "SC"]},
+    **dict.fromkeys(["AC", "AP", "AM", "PA", "RO", "RR", "TO"], "N"),
+    **dict.fromkeys(["AL", "BA", "CE", "MA", "PB", "PE", "PI", "RN", "SE"], "NE"),
+    **dict.fromkeys(["DF", "GO", "MT", "MS"], "CO"),
+    **dict.fromkeys(["ES", "MG", "RJ", "SP"], "SE"),
+    **dict.fromkeys(["PR", "RS", "SC"], "S"),
 }
 
 
 def _clean(df):
-    df.columns = [c.strip() for c in df.columns]
-    for c in df.columns:
-        if df[c].dtype == object:
-            df[c] = df[c].str.strip()
-    return df
+    # P1: uma implementacao so, em lai_triagem/dados.py. Esta funcao ja esteve
+    # duplicada em seis arquivos e a correcao do H9 alcancou apenas um.
+    return limpar(df)
 
 
 def load_cohort():
@@ -264,7 +264,8 @@ def main():
     print("datando a primeira aparição de cada órgão (2012 em diante)...")
     births = organ_birth_table()
     print(f"  órgãos datados: {len(births):,}")
-    print(f"  mais antigo: {min(births.values()).date()}   mais recente: {max(births.values()).date()}")
+    print(f"  mais antigo: {min(births.values()).date()}   "
+          f"mais recente: {max(births.values()).date()}")
 
     df = build(load_cohort(), births)
     tr = df[df.ano.isin(TRAIN_YEARS)].copy()
@@ -283,11 +284,14 @@ def main():
     for d in (tr, va, te):
         d["orgao_rate"] = d.OrgaoDestinatario.map(orate).fillna(base).astype("float32")
         d["orgao_esfera_rate"] = pd.Series(
-            list(zip(d.OrgaoDestinatario, d.Esfera)), index=d.index).map(oe).fillna(base).astype("float32")
+            list(zip(d.OrgaoDestinatario, d.Esfera, strict=True)),
+            index=d.index).map(oe).fillna(base).astype("float32")
         d["orgao_ufsol_rate"] = pd.Series(
-            list(zip(d.OrgaoDestinatario, d.UF_sol)), index=d.index).map(ou).fillna(base).astype("float32")
+            list(zip(d.OrgaoDestinatario, d.UF_sol, strict=True)),
+            index=d.index).map(ou).fillna(base).astype("float32")
         d["forma_origem_rate"] = pd.Series(
-            list(zip(d.FormaResposta, d.OrigemSolicitacao)), index=d.index).map(fo).fillna(base).astype("float32")
+            list(zip(d.FormaResposta, d.OrigemSolicitacao, strict=True)),
+            index=d.index).map(fo).fillna(base).astype("float32")
         d["municipio_sol_rate_p5"] = d.Municipio_sol.map(mp5).fillna(base).astype("float32")
 
     print("\n" + "=" * 104)
@@ -335,7 +339,8 @@ def main():
     print(f"\n  em quarentena (vazamento confirmado): {sorted(QUARENTENA)}")
     if winners:
         m_comb, b_comb, cols = fit_eval(tr, va, te, mask, CAT_BASE, NUM_BASE + G2 + winners)
-        print(f"\n  {'COMBINAÇÃO dos positivos':<26} {len(CAT_BASE)+len(NUM_BASE)+2+len(winners):>4} "
+        n_comb = len(CAT_BASE) + len(NUM_BASE) + 2 + len(winners)
+        print(f"\n  {'COMBINAÇÃO dos positivos':<26} {n_comb:>4} "
               f"{m_comb['val_pr']:>7.4f} {m_comb['test_pr']:>8.4f} {m_comb['test_p5']:>8.4f} "
               f"{m_comb['test_p10']:>9.4f} {m_comb['test_auc']:>7.4f} {m_comb['iters']:>4} "
               f"{m_comb['secs']:>5.1f}   {m_comb['test_pr'] - ref:+.4f}")
@@ -344,7 +349,7 @@ def main():
         print((100 * imp / imp.sum()).head(15).round(2).to_string())
 
     print("\n  linha de base sem modelo (consulta por órgão), teste maturado:")
-    print(f"    precisão@5% 0.2479   PR-AUC 0.1641")
+    print("    precisão@5% 0.2479   PR-AUC 0.1641")
 
     # diagnóstico da hipótese dos ministérios recriados
     print("\n" + "=" * 104)

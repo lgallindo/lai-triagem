@@ -43,16 +43,14 @@ import sys
 import time
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
-ROOT = Path.home() / "lai-triagem"
-INTERIM = ROOT / "data" / "interim"
-ART = ROOT / "artifacts"
-READ_KW = dict(sep=";", encoding="utf-16", dtype=str, na_values=[" ", ""], keep_default_na=True)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from lai_triagem.config import ART, INTERIM, PRIOR_MOVEL, READ_KW  # noqa: E402
+from lai_triagem.dados import limpar  # noqa: E402
+
+# P5/P1: caminhos, prior e READ_KW vêm de lai_triagem.config.
 WINDOWS = (90, 365)
-# Tem de ser idêntico ao PRIOR_MOVEL de scripts/train.py.
-PRIOR_MOVEL = 20.0
 # Só estes anos entram nas janelas móveis; os antigos servem para datar órgãos.
 RECENT_YEARS = [2024, 2025, 2026]
 BIRTH_YEARS = list(range(2012, 2027))
@@ -65,11 +63,9 @@ REFRESHABLE = {"organ_rate_movel_90d", "organ_rate_movel_365d", "organ_birth",
 
 
 def _clean(df):
-    df.columns = [c.strip() for c in df.columns]
-    for c in df.columns:
-        if df[c].dtype == object:
-            df[c] = df[c].str.strip()
-    return df
+    # P1: uma implementacao so, em lai_triagem/dados.py. Esta funcao ja esteve
+    # duplicada em seis arquivos e a correcao do H9 alcancou apenas um.
+    return limpar(df)
 
 
 def _latest(year):
@@ -134,7 +130,8 @@ def main():
             worst = d.abs().sort_values(ascending=False).head(5)
             print("  maiores movimentos:")
             for organ in worst.index:
-                print(f"    {organ[:54]:<54} {old[organ]:.4f} -> {rate[organ]:.4f}  ({d[organ]:+.4f})")
+                print(f"    {organ[:54]:<54} {old[organ]:.4f} -> "
+                      f"{rate[organ]:.4f}  ({d[organ]:+.4f})")
         print(f"  órgãos sem volume na janela recaem na taxa-base {base:.4f}: "
               f"{len(set(meta["organ_rate"]) - set(rate.index)):,}")
 
@@ -156,7 +153,8 @@ def main():
     new_tables["organ_tables_window_end"] = end.strftime("%Y-%m-%d")
 
     # Guarda-corpos: nada fora da lista permitida pode mudar.
-    assert set(new_tables) <= REFRESHABLE, f"tentativa de alterar chave proibida: {set(new_tables) - REFRESHABLE}"
+    assert set(new_tables) <= REFRESHABLE, (
+        f"tentativa de alterar chave proibida: {set(new_tables) - REFRESHABLE}")
     print(f"\nchaves a gravar: {sorted(new_tables)}")
     print(f"chaves preservadas: organ_rate ({len(meta["organ_rate"])} entradas), "
           f"category_codes, threshold ({meta['threshold']}), feature_order, o modelo")

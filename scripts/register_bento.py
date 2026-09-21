@@ -33,7 +33,8 @@ saved = bentoml.lightgbm.save_model(
     },
     metadata={
         "test_pr_auc_matured": meta["metrics"]["arrival"]["test_matured"]["pr_auc"],
-        "test_precision_at_5pct": meta["metrics"]["arrival"]["test_matured"]["precision_at"]["0.05"],
+        "test_precision_at_5pct":
+            meta["metrics"]["arrival"]["test_matured"]["precision_at"]["0.05"],
         "n_features": len(meta["feature_order"]),
         "excluded_leakage_features": meta["excluded_leakage_features"],
         # Registrado no próprio artefato para que ninguém o implante sem saber.

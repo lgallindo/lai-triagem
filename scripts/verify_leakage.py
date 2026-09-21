@@ -19,7 +19,9 @@ from pathlib import Path
 
 import pandas as pd
 
-INTERIM = Path.home() / "lai-triagem" / "data" / "interim"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from lai_triagem.config import INTERIM  # noqa: E402
+
 SNAP = "20260914"
 READ_KW = dict(sep=";", encoding="utf-16", dtype=str, na_values=[" ", ""], keep_default_na=True)
 
