@@ -45,13 +45,12 @@ from pathlib import Path
 
 import pandas as pd
 
-ROOT = Path.home() / "lai-triagem"
-INTERIM = ROOT / "data" / "interim"
-ART = ROOT / "artifacts"
-READ_KW = dict(sep=";", encoding="utf-16", dtype=str, na_values=[" ", ""], keep_default_na=True)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from lai_triagem.config import ART, INTERIM, PRIOR_MOVEL, READ_KW  # noqa: E402
+from lai_triagem.dados import limpar  # noqa: E402
+
+# P5/P1: caminhos, prior e READ_KW vêm de lai_triagem.config.
 WINDOWS = (90, 365)
-# Tem de ser idêntico ao PRIOR_MOVEL de scripts/train.py.
-PRIOR_MOVEL = 20.0
 # Só estes anos entram nas janelas móveis; os antigos servem para datar órgãos.
 RECENT_YEARS = [2024, 2025, 2026]
 BIRTH_YEARS = list(range(2012, 2027))
@@ -64,14 +63,9 @@ REFRESHABLE = {"organ_rate_movel_90d", "organ_rate_movel_365d", "organ_birth",
 
 
 def _clean(df):
-    df.columns = [c.strip() for c in df.columns]
-    # H9: testar `dtype == object` NAO funciona -- READ_KW passa `dtype=str` e o
-    # pandas moderno devolve o dtype `str` (PDEP-14). A condicao nunca era
-    # verdadeira e a funcao era no-op. Ver scripts/train.py e
-    # docs/auditorias/2026-09-18-camadas-2-3.md.
-    for c in df.select_dtypes(include=["object", "string"]).columns:
-        df[c] = df[c].str.strip()
-    return df
+    # P1: uma implementacao so, em lai_triagem/dados.py. Esta funcao ja esteve
+    # duplicada em seis arquivos e a correcao do H9 alcancou apenas um.
+    return limpar(df)
 
 
 def _latest(year):

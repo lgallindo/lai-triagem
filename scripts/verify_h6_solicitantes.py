@@ -19,11 +19,14 @@ Previsões opostas e observáveis:
 ela variar é sinal de que o identificador não é estável.
 """
 
+import sys
 from pathlib import Path
 
 import pandas as pd
 
-INTERIM = Path.home() / "lai-triagem/data/interim"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from lai_triagem.config import INTERIM  # noqa: E402
+
 KW = dict(sep=";", encoding="utf-16", dtype=str, na_values=[" ", ""], keep_default_na=True)
 YEARS = [2022, 2023, 2024, 2025, 2026]
 CAMPOS = ["TipoDemandante", "DataNascimento", "Genero", "Escolaridade",

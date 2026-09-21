@@ -50,6 +50,8 @@ import pandas as pd
 from sklearn.metrics import average_precision_score, roc_auc_score
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from lai_triagem.config import INTERIM, READ_KW  # noqa: E402
+from lai_triagem.dados import limpar  # noqa: E402
 from scripts.train import (  # noqa: E402
     build_features as train_build_features,
 )
@@ -60,10 +62,8 @@ from scripts.train import (
     precision_at_k,
 )
 
-ROOT = Path.home() / "lai-triagem"
-INTERIM = ROOT / "data" / "interim"
+# P5/P1: raiz, INTERIM e READ_KW vêm de lai_triagem.config.
 SNAP = "20260914"
-READ_KW = dict(sep=";", encoding="utf-16", dtype=str, na_values=[" ", ""], keep_default_na=True)
 
 TRAIN_YEARS, VAL_YEAR, TEST_YEAR = [2022, 2023, 2024], 2025, 2026
 COHORT = TRAIN_YEARS + [VAL_YEAR, TEST_YEAR]
@@ -111,14 +111,9 @@ REGIAO = {
 
 
 def _clean(df):
-    df.columns = [c.strip() for c in df.columns]
-    # H9: testar `dtype == object` NAO funciona -- READ_KW passa `dtype=str` e o
-    # pandas moderno devolve o dtype `str` (PDEP-14). A condicao nunca era
-    # verdadeira e a funcao era no-op. Ver scripts/train.py e
-    # docs/auditorias/2026-09-18-camadas-2-3.md.
-    for c in df.select_dtypes(include=["object", "string"]).columns:
-        df[c] = df[c].str.strip()
-    return df
+    # P1: uma implementacao so, em lai_triagem/dados.py. Esta funcao ja esteve
+    # duplicada em seis arquivos e a correcao do H9 alcancou apenas um.
+    return limpar(df)
 
 
 def load_cohort():

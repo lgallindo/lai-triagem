@@ -19,11 +19,15 @@ H2  OrgaoDestinatario guarda o órgão endereçado ou o final?
           tal como registrado no recurso) ao lado de Pedidos.OrgaoDestinatario.
 """
 
+import sys
 from pathlib import Path
 
 import pandas as pd
 
-INTERIM = Path.home() / "lai-triagem" / "data" / "interim"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from lai_triagem.config import INTERIM  # noqa: E402
+from lai_triagem.dados import limpar  # noqa: E402
+
 SNAP = "20260914"
 READ_KW = dict(sep=";", encoding="utf-16", dtype=str, na_values=[" ", ""], keep_default_na=True)
 YEARS = [2022, 2023, 2024, 2025, 2026]
@@ -31,9 +35,8 @@ YEARS = [2022, 2023, 2024, 2025, 2026]
 
 def _clean(df):
     df.columns = [c.strip() for c in df.columns]
-    for c in df.select_dtypes(include=["object", "string"]).columns:
-        df[c] = df[c].str.strip()
-    return df
+    # P1: uma implementacao so, em lai_triagem/dados.py.
+    return limpar(df)
 
 
 def load(kind, year, cols=None):

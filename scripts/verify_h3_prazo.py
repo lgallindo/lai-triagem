@@ -17,25 +17,24 @@ H4  Quão utilizáveis são, afinal, as variáveis demográficas?
     quantifica a falha de junção.
 """
 
+import sys
 from pathlib import Path
 
 import pandas as pd
 
-INTERIM = Path.home() / "lai-triagem" / "data" / "interim"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from lai_triagem.config import INTERIM  # noqa: E402
+from lai_triagem.dados import limpar  # noqa: E402
+
 SNAP = "20260914"
 READ_KW = dict(sep=";", encoding="utf-16", dtype=str, na_values=[" ", ""], keep_default_na=True)
 YEARS = [2022, 2023, 2024, 2025, 2026]
 
 
 def _clean(df):
-    df.columns = [c.strip() for c in df.columns]
-    # H9: testar `dtype == object` NAO funciona -- READ_KW passa `dtype=str` e o
-    # pandas moderno devolve o dtype `str` (PDEP-14). A condicao nunca era
-    # verdadeira e a funcao era no-op. Ver scripts/train.py e
-    # docs/auditorias/2026-09-18-camadas-2-3.md.
-    for c in df.select_dtypes(include=["object", "string"]).columns:
-        df[c] = df[c].str.strip()
-    return df
+    # P1: uma implementacao so, em lai_triagem/dados.py. Esta funcao ja esteve
+    # duplicada em seis arquivos e a correcao do H9 alcancou apenas um.
+    return limpar(df)
 
 
 frames = []

@@ -31,6 +31,7 @@ Procedimento reproduzível completo em docs/TREINAMENTO.md.
 """
 
 import json
+import sys
 import time
 from pathlib import Path
 
@@ -39,27 +40,38 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import average_precision_score, roc_auc_score
 
-ROOT = Path.home() / "lai-triagem"
-INTERIM = ROOT / "data" / "interim"
-ART = ROOT / "artifacts"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+# P1: caminhos, constantes, limpeza e métrica vêm do pacote. Antes estavam
+# duplicados aqui e em mais cinco scripts, e a correção do H9 alcançou só um
+# deles. Reexportados como nomes de módulo porque `experiment_h7_h8.py` e
+# `verify_h7_alinhamento.py` os acessam como `train.MATURITY_DAYS`.
+from lai_triagem.config import (  # noqa: E402
+    ART,
+    BIRTH_YEARS,
+    COHORT,
+    MATURITY_DAYS,
+    PRIOR_MOVEL,
+    PRIOR_ORGAO,
+    QUEUE_FRAC,
+    READ_KW,
+    SEED,
+    SNAPSHOT,
+    TEST_YEAR,
+    TRAIN_YEARS,
+    VAL_YEAR,
+)
+from lai_triagem.config import (
+    RAIZ as ROOT,
+)
+from lai_triagem.dados import arquivo_mais_recente, limpar  # noqa: E402
+from lai_triagem.metricas import precision_at_k  # noqa: E402
+
 ART.mkdir(exist_ok=True)
 
-READ_KW = dict(sep=";", encoding="utf-16", dtype=str, na_values=[" ", ""], keep_default_na=True)
-TRAIN_YEARS, VAL_YEAR, TEST_YEAR = [2022, 2023, 2024], 2025, 2026
-COHORT = TRAIN_YEARS + [VAL_YEAR, TEST_YEAR]
-# Anos lidos SÓ para datar a primeira aparição de cada órgão. Sem eles, órgão
-# pré-existente pareceria nascido em 01/01/2022.
-BIRTH_YEARS = list(range(2012, 2022))
-# Um pedido precisa de tempo para ser reencaminhado; linhas registradas a menos
-# dias do retrato têm rótulo censurado à direita.
-MATURITY_DAYS = 60
-SNAPSHOT = pd.Timestamp("2026-09-14")
-SEED = 42
-QUEUE_FRAC = 0.10  # ponto de operação: fila dos 10% mais arriscados
-# Prior das taxas em janela móvel. Tem de ser idêntico em
-# scripts/refresh_organ_tables.py, senão o reajuste desloca a distribuição da
-# variável em relação ao que foi treinado.
-PRIOR_MOVEL = 20.0
+# Apelidos dos importados: as chamadas internas continuam `_clean(...)` e
+# `_latest(...)`, e `train._clean` segue valido para quem importa este modulo.
+_clean = limpar
+_latest = arquivo_mais_recente
 
 PED_COLS = ["IdPedido", "ProtocoloPedido", "Esfera", "UF", "Municipio",
             "OrgaoDestinatario", "Situacao", "DataRegistro", "PrazoAtendimento",
@@ -131,37 +143,6 @@ NUM_PROD_FINAL = NUM_PROD
 
 NUM_LEAKY = ["prazo_dias"]
 CAT_ASSUNTO = ["AssuntoPedido", "SubAssuntoPedido"]
-
-
-def _clean(df):
-    """Corta espaço das bordas de todo texto, e do nome das colunas.
-
-    H9: a versão anterior testava `df[c].dtype == object` e **não cortava
-    nada**. `READ_KW` passa `dtype=str`, e o pandas moderno devolve o dtype
-    `str` (PDEP-14), não `object` — a condição nunca era verdadeira. A função
-    parecia proteção e era no-op, silenciosamente, desde a troca de dtype.
-
-    O que isso custou: 162 chaves com espaço nas bordas ficaram nas tabelas do
-    artefato. O serviço corta o texto que recebe (`featurize.py`), então esses
-    41 órgãos **nunca eram encontrados** e recaíam na taxa-base — 1,41% dos
-    pedidos de 2026. Pior, três identidades ficaram partidas em duas no próprio
-    treino: `Prefeitura Municipal` aparecia como 1.878 pedidos com espaço e
-    16.446 sem, como se fossem órgãos diferentes.
-
-    `select_dtypes` em vez de comparar dtype na mão, para não depender de qual
-    representação de texto o pandas resolve usar.
-    """
-    df.columns = [c.strip() for c in df.columns]
-    for c in df.select_dtypes(include=["object", "string"]).columns:
-        df[c] = df[c].str.strip()
-    return df
-
-
-def _latest(year, kind="Pedidos"):
-    """Glob em vez de prefixo fixo: a CGU trocou o retrato de 20260914 para
-    20260915 durante o trabalho, e prefixo fixo perdia arquivos em silêncio."""
-    hits = sorted(INTERIM.glob(f"*_{kind}_csv_{year}.csv"))
-    return hits[-1] if hits else None
 
 
 def load_cohort():
@@ -373,7 +354,7 @@ def build_features(df, births):
     return df
 
 
-def fit_organ_rate(train, prior_weight=50.0):
+def fit_organ_rate(train, prior_weight=PRIOR_ORGAO):
     """Taxa histórica suavizada de reencaminhamento por órgão, ajustada SÓ NO TREINO."""
     base = train.y.mean()
     g = train.groupby("OrgaoDestinatario").y.agg(["sum", "count"])
@@ -390,43 +371,6 @@ def encode(df, cats, cat_maps=None):
         out[c] = s.map(m).fillna(-1).astype("int32").to_numpy()
         maps[c] = m
     return out, maps
-
-
-def precision_at_k(y, p, frac, return_ties=False):
-    """Precisão na fila dos k primeiros, com desempate EXPLÍCITO.
-
-    Defeito corrigido (apontado por auditoria externa): a versão anterior usava
-    `np.argsort(-p)[:k]`, que desempata pela ordem das linhas no arquivo. O
-    escore da linha de base é a taxa por órgão, CONSTANTE dentro de cada órgão,
-    logo há blocos enormes de empate exatamente no ponto de corte -- e o número
-    passava a depender da ordem de leitura do CSV, não do modelo.
-
-    Aqui devolvemos o VALOR ESPERADO sob desempate uniforme: todos os positivos
-    com escore estritamente acima do corte, mais a fração proporcional do bloco
-    empatado. É determinístico e bem definido, e não depende de ordenação.
-    """
-    n = len(y)
-    k = min(max(1, int(round(frac * n))), n)
-    order = np.argsort(-p, kind="stable")
-    ps, ys = np.asarray(p)[order], np.asarray(y)[order]
-
-    cut = ps[k - 1]
-    above = ps > cut
-    n_above = int(above.sum())
-    pos_above = float(ys[above].sum())
-
-    tied = ps == cut
-    n_tied = int(tied.sum())
-    pos_tied = float(ys[tied].sum())
-
-    need = k - n_above                      # quantos do bloco empatado entram
-    exp_pos = pos_above + (need * pos_tied / n_tied if n_tied else 0.0)
-    prec = exp_pos / k
-    if return_ties:
-        # n_tied >> need indica que o corte cai no meio de um bloco grande: o
-        # número é uma expectativa, não uma seleção determinada.
-        return prec, k, n_tied, need
-    return prec, k
 
 
 def evaluate(name, y, p):
