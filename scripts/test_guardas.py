@@ -100,7 +100,7 @@ def _post_hoc(d):
 CASOS = [
     # (rótulo, arquivo, mutação, guarda que deve acusar)
     ("número em prosa obsoleto", "README.md",
-     texto("0,372225", "0,999999"), "scripts/check_prosa.py"),
+     texto("0,349331", "0,999999"), "scripts/check_prosa.py"),
     ("classificação de risco invertida no JSON", "README.md",
      texto('"alerta": "ALTO RISCO"', '"alerta": "BAIXO RISCO"'),
      "scripts/check_prosa.py"),
@@ -112,9 +112,10 @@ CASOS = [
      "scripts/check_prosa.py"),
     ("GET num endpoint que só aceita POST", "README.md",
      texto("## `POST /health`", "## `GET /health`"), "scripts/check_prosa.py"),
-    ("ganho de variável divergente do booster", "README.md",
-     texto("| `Municipio_sol` | Solicitantes | categórico | **8,26%** |",
-           "| `Municipio_sol` | Solicitantes | categórico | **9,99%** |"),
+    # A tabela de ganho mudou-se para docs/RESULTADOS.md quando o README virou
+    # manual; a mutação segue o alvo.
+    ("ganho de variável divergente do booster", "docs/RESULTADOS.md",
+     texto("| `Municipio_sol` | 8,45% |", "| `Municipio_sol` | 9,99% |"),
      "scripts/check_prosa.py"),
     # O padrão `limiar <número>` não aparece em nenhum documento vigente -- só
     # em registro de auditoria, que é isento. A regra existe para impedir que o
