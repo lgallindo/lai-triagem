@@ -48,10 +48,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from lai_triagem.codificacao import orgao_rate_crossfit, taxa_suavizada  # noqa: E402
 from lai_triagem.config import (  # noqa: E402
     ART,
-    BIRTH_YEARS,
     COHORT,
     MATURITY_DAYS,
-    PRIOR_MOVEL,
+    PRIOR_MOVEL,  # noqa: F401  — reexportado: `verify_h7_alinhamento.py` e
+    # `experiment_h7_h8.py` leem `train.PRIOR_MOVEL`. `BIRTH_YEARS`
+    # saiu junto com `organ_birth_table` e ninguém o lia por aqui.
     PRIOR_ORGAO,
     QUEUE_FRAC,
     READ_KW,
@@ -67,12 +68,29 @@ from lai_triagem.config import (
 from lai_triagem.dados import arquivo_mais_recente, limpar  # noqa: E402
 from lai_triagem.metricas import precision_at_k  # noqa: E402
 
+# EXPERIMENTO TEMPORIAN. A construção de variáveis saiu daqui e foi para
+# `lai_triagem/variaveis_temporian.py`, onde as janelas passam a ser operações
+# do Temporian em vez de `searchsorted`/`merge_asof` à mão. O resto deste
+# arquivo — corte temporal, variantes, métrica, artefato — não mudou.
+from lai_triagem.variaveis_temporian import (  # noqa: E402
+    build_features,
+    organ_birth_table,
+    taxas_moveis_por_orgao,
+)
+
 ART.mkdir(exist_ok=True)
 
 # Apelidos dos importados: as chamadas internas continuam `_clean(...)` e
 # `_latest(...)`, e `train._clean` segue valido para quem importa este modulo.
 _clean = limpar
 _latest = arquivo_mais_recente
+# `organ_rolling` era função deste arquivo e virou `taxas_moveis_por_orgao` no
+# módulo novo, com a mesma assinatura e o mesmo formato de retorno.
+# `experiment_h7_h8.py`, `experiment_features_v2.py` e
+# `verify_h7_alinhamento.py` a chamam pelo nome antigo. Atribuição, e não
+# `import ... as`, porque o ruff apaga o segundo como importação sem uso — e
+# apagar silenciosamente uma reexportação quebraria três scripts.
+organ_rolling = taxas_moveis_por_orgao
 
 PED_COLS = ["IdPedido", "ProtocoloPedido", "Esfera", "UF", "Municipio",
             "OrgaoDestinatario", "Situacao", "DataRegistro", "PrazoAtendimento",
@@ -156,203 +174,6 @@ def load_cohort():
         d["ano"] = y
         frames.append(d)
     return pd.concat(frames, ignore_index=True)
-
-
-def organ_birth_table():
-    """Primeira data de aparição de cada órgão, de 2012 em diante.
-    Só usa datas, nunca rótulos, portanto não há risco de vazamento de alvo."""
-    first = {}
-    for y in BIRTH_YEARS + COHORT:
-        f = _latest(y)
-        if f is None:
-            continue
-        d = _clean(pd.read_csv(f, usecols=["OrgaoDestinatario", "DataRegistro"], **READ_KW))
-        d["_reg"] = pd.to_datetime(d.DataRegistro, format="%d/%m/%Y", errors="coerce")
-        for organ, dt in d.groupby("OrgaoDestinatario")._reg.min().items():
-            if pd.notna(dt) and (organ not in first or dt < first[organ]):
-                first[organ] = dt
-    return first
-
-
-def organ_rolling(df, windows=(90, 365), lag_days=MATURITY_DAYS):
-    """Agregados por órgão em janela móvel DEFASADA.
-
-    Para a linha em `t`, a janela é `(t - lag - w, t - lag]`. A defasagem é o
-    Fix 2: sem ela, a variável consome desfechos de pedidos registrados dias
-    antes, cujo `FoiReencaminhado` no retrato já está resolvido mas que, em
-    produção, ainda não estaria. Auditoria externa mediu 523.719 de 654.718
-    taxas móveis incorporando algum positivo com menos de MATURITY_DAYS.
-
-    A defasagem também subsome o problema do mesmo dia (Fix 1): nada registrado
-    nos últimos `lag` dias entra, e o mesmo dia está nesse intervalo.
-    """
-    out = {}
-    for w in windows:
-        out[f"cnt_{w}"] = np.zeros(len(df))
-        out[f"sum_{w}"] = np.zeros(len(df))
-    dates_all = df["_reg"].to_numpy("datetime64[ns]")
-    y_all = df["y"].to_numpy()
-    lag = np.timedelta64(lag_days, "D")
-    for _, idx in df.groupby("OrgaoDestinatario", sort=False).indices.items():
-        order = np.argsort(dates_all[idx], kind="stable")
-        idx_s = idx[order]
-        d_s = dates_all[idx_s]
-        ycum = np.concatenate([[0.0], np.cumsum(y_all[idx_s])])
-        # side="right" sobre (t - lag): inclui quem foi registrado ATÉ essa data.
-        hi = np.searchsorted(d_s, d_s - lag, side="right")
-        for w in windows:
-            lo = np.searchsorted(d_s, d_s - lag - np.timedelta64(w, "D"), side="right")
-            out[f"cnt_{w}"][idx_s] = hi - lo
-            out[f"sum_{w}"][idx_s] = ycum[hi] - ycum[lo]
-    return out
-
-
-def lagged_outcome_sums(sub, keys, lag_days=MATURITY_DAYS):
-    """Soma e contagem de `y` sobre linhas do mesmo grupo registradas até
-    `t - lag_days`, para cada linha em `t`.
-
-    Vetorizado com `merge_asof` em vez de laço por grupo: são 240.407
-    solicitantes, e o laço levaria dezenas de segundos.
-    """
-    daily = (sub.groupby(keys + ["_reg"], as_index=False, observed=True)
-                .agg(dy=("y", "sum"), dn=("y", "size"))
-                .sort_values("_reg", kind="stable"))
-    daily["cum_y"] = daily.groupby(keys, observed=True).dy.cumsum()
-    daily["cum_n"] = daily.groupby(keys, observed=True).dn.cumsum()
-
-    left = sub[keys + ["_reg"]].copy()
-    left["_cut"] = left["_reg"] - pd.Timedelta(days=lag_days)
-    left = left.sort_values("_cut", kind="stable")
-    # H7: `merge_asof` REINICIA o índice, então `m.index` é POSIÇÃO, não rótulo
-    # de linha. Quem consome faz `Series(cum_y, index=order).reindex(sub.index)`,
-    # que casa por rótulo — e como `df` levou `reset_index(drop=True)` e `sub`
-    # exclui os solicitantes anônimos, rótulo e posição não coincidem. Devolver
-    # `m.index` fazia 94.145 linhas (17,3%) receberem NaN, virando "sem
-    # histórico", e 120.060 receberem o histórico de OUTRA linha. O rótulo tem
-    # de ser guardado antes do merge.
-    rotulos = left.index.to_numpy()
-    m = pd.merge_asof(left, daily[keys + ["_reg", "cum_y", "cum_n"]],
-                      left_on="_cut", right_on="_reg", by=keys,
-                      direction="backward", suffixes=("", "_d"))
-    return (m.cum_y.fillna(0.0).to_numpy(), m.cum_n.fillna(0.0).to_numpy(),
-            rotulos)
-
-
-def build_features(df, births):
-    reg = pd.to_datetime(df.DataRegistro, format="%d/%m/%Y", errors="coerce")
-    prazo = pd.to_datetime(df.PrazoAtendimento, format="%d/%m/%Y", errors="coerce")
-    nasc = pd.to_datetime(df.DataNascimento, format="%d/%m/%Y", errors="coerce")
-    df = df.assign(
-        _reg=reg,
-        prazo_dias=(prazo - reg).dt.days,   # só para a variante diagnóstica C
-        reg_month=reg.dt.month, reg_dow=reg.dt.dayofweek, reg_day=reg.dt.day,
-        idade=((reg - nasc).dt.days / 365.25).round(1),
-        uf_match=(df.UF_sol.fillna("~") == df.UF.fillna("!")).astype("int8"),
-        y=df.FoiReencaminhado.eq("Sim").astype("int8"),
-    )
-    # Idades implausíveis são erro de dado, não sinal.
-    df.loc[(df.idade < 10) | (df.idade > 110), "idade"] = np.nan
-    # Descarta linhas em trânsito: o OrgaoDestinatario delas é o receptor.
-    df = df[df.Situacao.ne("Encaminhada por Outro Órgão")].copy()
-    # Ordem temporal real: IdPedido desempata dentro do dia. Verificado --
-    # correlacao +0,996 com a data, 22 inversoes em 655.177 (0,0034%).
-    df["_idp"] = pd.to_numeric(df.IdPedido, errors="coerce")
-    df = df.sort_values(["_reg", "_idp"], kind="stable").reset_index(drop=True)
-
-    # --- histórico do solicitante ---------------------------------------------
-    # ATENÇÃO -- DEFEITO CONHECIDO, correção planejada (Fix 1+2).
-    #
-    # A soma acumulada é deslocada, então a linha corrente não vê a si mesma nem
-    # o futuro. MAS `DataRegistro` é somente data, sem hora, e `cumcount`/
-    # `cumsum` sobre o quadro ordenado por data INCLUEM os irmãos do MESMO DIA.
-    # Auditoria externa mediu: 159.320 linhas recebem histórico de um pedido do
-    # mesmo solicitante no mesmo dia, e 22.793 incorporam um rótulo positivo
-    # desse empate. Além disso, 53.434 linhas consomem desfecho de pedido
-    # registrado há menos de MATURITY_DAYS -- desfecho que em produção ainda não
-    # seria conhecido.
-    #
-    # As janelas por órgão (organ_rolling) NÃO têm esse defeito: usam
-    # searchsorted com side="left", que exclui o mesmo dia. A garantia valia
-    # para um lado e foi indevidamente generalizada para o outro.
-    #
-    # Solicitante anonimizado ('0') não acumula: não é uma pessoa.
-    real = df.IdSolicitante.ne("0")
-    sub = df.loc[real]
-
-    # (a) CONTAGENS -- não dependem de desfecho. Que o cidadão já protocolou
-    # antes, inclusive hoje, é fato conhecível no instante da chegada. Ordena
-    # por (_reg, IdPedido): IdPedido é ordem de registro válida, verificado --
-    # correlação +0,996 com a data e só 22 inversões em 655.177 (0,0034%).
-    # Portanto o mesmo dia entra, mas na ordem temporal correta, não na ordem
-    # do arquivo.
-    g_sol = sub.groupby("IdSolicitante", sort=False)
-    g_pair = sub.groupby(["IdSolicitante", "OrgaoDestinatario"], sort=False)
-    first_pair = (~sub.duplicated(["IdSolicitante", "OrgaoDestinatario"])).astype("int8")
-    counts = {
-        "n_pedidos_previos": g_sol.cumcount(),
-        "n_pedidos_previos_neste_orgao": g_pair.cumcount(),
-        "n_orgaos_distintos_previos": first_pair.groupby(sub.IdSolicitante).cumsum() - first_pair,
-        "dias_desde_ultimo_pedido": g_sol._reg.diff().dt.days,
-    }
-    for col, v in counts.items():
-        df[col] = np.nan
-        df.loc[real, col] = v.astype("float32")
-
-    # (b) DESFECHOS -- dependem do rótulo, logo exigem defasagem de maturação.
-    # Só contam pedidos anteriores registrados até `t - MATURITY_DAYS`, cujo
-    # FoiReencaminhado teve tempo de se firmar. Isso elimina de uma vez o
-    # vazamento do mesmo dia (159.320 linhas) e o consumo de desfecho imaturo
-    # (53.434 linhas), ambos medidos por auditoria externa.
-    for col, keys in (("prev_reenc_solicitante", ["IdSolicitante"]),
-                      ("prev_reenc_neste_orgao", ["IdSolicitante", "OrgaoDestinatario"])):
-        cum_y, cum_n, order = lagged_outcome_sums(sub, keys)
-        s = pd.Series(cum_y, index=order)
-        df[col] = np.nan
-        df.loc[real, col] = s.reindex(sub.index).to_numpy().astype("float32")
-        # A contagem madura acompanha, para a razão ter denominador coerente.
-        df[col + "_den"] = np.nan
-        df.loc[real, col + "_den"] = pd.Series(cum_n, index=order).reindex(
-            sub.index).to_numpy().astype("float32")
-    # As razões usam o denominador MADURO, não a contagem total: dividir
-    # desfechos maduros por contagem total subestimaria a taxa.
-    df["prev_reenc_rate_solicitante"] = (
-        df.prev_reenc_solicitante
-        / df.prev_reenc_solicitante_den.where(df.prev_reenc_solicitante_den > 0)
-    ).astype("float32")
-    # Item 3: a razão no par solicitante x órgão. A experiência é específica do
-    # órgão (n_pedidos_previos_neste_orgao rende 5x mais que o agregado), então
-    # a taxa nesse par é a extensão natural. Sai de dois campos que o chamador
-    # já envia, logo não amplia o contrato nem retém nada.
-    df["prev_reenc_rate_neste_orgao"] = (
-        df.prev_reenc_neste_orgao
-        / df.prev_reenc_neste_orgao_den.where(df.prev_reenc_neste_orgao_den > 0)
-    ).astype("float32")
-    # -1 marca "sem histórico", distinguível de zero, e é o que o chamador
-    # deve enviar quando não tiver o dado.
-    for c in NUM_SOLICITANTE + NUM_DERIVED_CALLER:
-        df[c] = df[c].fillna(-1).astype("float32")
-
-    # --- dinâmica do órgão ---------------------------------------------------
-    roll = organ_rolling(df)
-    # H8: o prior tem de vir SÓ dos anos de treino. Antes era `df.y.mean()`,
-    # sobre todo o quadro — 2025 e 2026 inclusive —, o que punha rótulo de
-    # validação e de teste dentro de uma variável de entrada. Pior que uma
-    # impropriedade formal: `base_all` (0,0726) fica mais perto da taxa-base do
-    # teste que `base_train` (0,0803), então encolher para ela lisonjeava o
-    # resultado. Corrigir DERRUBOU a precisão@5% de 24,67% para 23,14%, que é
-    # exatamente a assinatura de vazamento: ao tapar, o desempenho aparente cai.
-    base_prior = float(df.loc[df.ano.isin(TRAIN_YEARS), "y"].mean())
-    for w in (90, 365):
-        cnt, sm = roll[f"cnt_{w}"], roll[f"sum_{w}"]
-        # Suavização com prior, igual à de orgao_rate. Sem ela, um órgão com um
-        # único pedido na janela produz taxa 0,0 ou 1,0: o ensaio de
-        # refresh_organ_tables.py mostrou 16,2% dos órgãos oscilando mais de
-        # 5 pp por puro ruído de volume baixo. Prior menor que o de orgao_rate
-        # (20 contra 50) porque a janela de 90 d tem menos massa.
-        df[f"orgao_rate_movel_{w}d"] = (sm + PRIOR_MOVEL * base_prior) / (cnt + PRIOR_MOVEL)
-    born = df.OrgaoDestinatario.map(births)
-    df["dias_desde_primeiro_pedido_do_orgao"] = (df._reg - born).dt.days.astype("float32")
-    return df
 
 
 def fit_organ_rate(train, prior_weight=PRIOR_ORGAO):

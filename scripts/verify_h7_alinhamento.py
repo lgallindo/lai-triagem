@@ -31,8 +31,11 @@ import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 import train  # noqa: E402
+
+from lai_triagem.variaveis_temporian import desfechos_defasados  # noqa: E402
 
 
 def linha(t=""):
@@ -58,9 +61,13 @@ if sub.index.max() > len(sub) - 1:
     print("  -> há rótulo além do fim das posições: `reindex` devolverá NaN "
           "para esses, e valor de OUTRA linha para os demais")
 
-cum_y, cum_n, order = train.lagged_outcome_sums(sub, ["IdSolicitante"])
-print(f"\n`order` devolvido        : {order[:6]} ... {order[-3:]}")
-print(f"`order` é RangeIndex 0..n-1? {bool((order == np.arange(len(order))).all())}")
+print("\nNESTE RAMO a pergunta acima mudou de natureza. `lagged_outcome_sums`")
+print("não existe mais: quem calcula é `desfechos_defasados`, do módulo do")
+print("Temporian, e ele não devolve índice nenhum — devolve vetores já na ordem")
+print("das linhas de `sub`. Não há rótulo a recasar, logo não há como recasar")
+print("errado. O que se confere aqui deixou de ser 'o índice está certo?' e")
+print("passou a ser 'o resultado bate com a reconstrução sabidamente correta?'.")
+
 
 # Reconstrução CORRETA: preserva o rótulo original antes do merge_asof.
 def correto(sub, keys, lag_days=train.MATURITY_DAYS):
@@ -81,9 +88,9 @@ def correto(sub, keys, lag_days=train.MATURITY_DAYS):
 
 for keys, rotulo in ((["IdSolicitante"], "prev_reenc_solicitante"),
                      (["IdSolicitante", "OrgaoDestinatario"], "prev_reenc_neste_orgao")):
-    cy, cn, order = train.lagged_outcome_sums(sub, keys)
-    atual = pd.Series(cy, index=order).reindex(sub.index)      # como está hoje
-    certo, certo_n = correto(sub, keys)                        # como deveria ser
+    cy, cn = desfechos_defasados(sub, keys)
+    atual = pd.Series(cy, index=sub.index)                     # Temporian
+    certo, certo_n = correto(sub, keys)                        # referência à mão
 
     nan_atual = int(atual.isna().sum())
     nan_certo = int(certo.isna().sum())
@@ -93,13 +100,16 @@ for keys, rotulo in ((["IdSolicitante"], "prev_reenc_solicitante"),
     soma_certo = float(certo.fillna(0).sum())
 
     linha(f"H7 — {rotulo}")
-    print(f"NaN hoje                 : {nan_atual:,}  ({100*nan_atual/len(sub):.1f}% das linhas)")
-    print(f"NaN corrigido            : {nan_certo:,}")
+    print(f"NaN pelo Temporian       : {nan_atual:,}")
+    print(f"NaN pela referência      : {nan_certo:,}")
     print(f"ambos preenchidos, diferem: {difere:,}")
-    print(f"soma dos desfechos hoje  : {soma_atual:,.0f}")
-    print(f"soma corrigida           : {soma_certo:,.0f}")
+    print(f"soma dos desfechos, Temporian : {soma_atual:,.0f}")
+    print(f"soma dos desfechos, referência: {soma_certo:,.0f}")
     if nan_atual > nan_certo or difere:
-        print("  -> CONFIRMADO: o histórico está sendo atribuído às linhas erradas")
+        print("  -> REGRESSÃO: o histórico está sendo atribuído às linhas erradas")
+    else:
+        print("  -> bate linha a linha. A classe do H7 não é alcançável aqui: o")
+        print("     resultado volta preso à amostragem, sem índice intermediário.")
 
 # ---------------------------------------------------------------- H8
 linha("H8 — o prior das taxas móveis usa rótulo de validação e teste?")

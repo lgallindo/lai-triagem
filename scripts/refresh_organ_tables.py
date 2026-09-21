@@ -132,8 +132,14 @@ def main():
             for organ in worst.index:
                 print(f"    {organ[:54]:<54} {old[organ]:.4f} -> "
                       f"{rate[organ]:.4f}  ({d[organ]:+.4f})")
+        # Aspas simples por dentro: o f-string que reaproveita a aspa externa é
+        # PEP 701, válido só a partir do 3.12. O experimento do Temporian
+        # obrigou o projeto a descer para 3.11 (o pacote não tem roda para
+        # 3.12), e estas duas linhas passaram a ser ERRO DE SINTAXE — num
+        # arquivo que não é experimento, e sim a ferramenta que reescreve as
+        # tabelas de órgão dentro do artefato de produção.
         print(f"  órgãos sem volume na janela recaem na taxa-base {base:.4f}: "
-              f"{len(set(meta["organ_rate"]) - set(rate.index)):,}")
+              f"{len(set(meta['organ_rate']) - set(rate.index)):,}")
 
     # Nascimento dos órgãos: capta órgãos criados desde o último reajuste.
     births = {}
@@ -156,7 +162,7 @@ def main():
     assert set(new_tables) <= REFRESHABLE, (
         f"tentativa de alterar chave proibida: {set(new_tables) - REFRESHABLE}")
     print(f"\nchaves a gravar: {sorted(new_tables)}")
-    print(f"chaves preservadas: organ_rate ({len(meta["organ_rate"])} entradas), "
+    print(f"chaves preservadas: organ_rate ({len(meta['organ_rate'])} entradas), "
           f"category_codes, threshold ({meta['threshold']}), feature_order, o modelo")
 
     if not APPLY:

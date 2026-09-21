@@ -3,7 +3,16 @@ name = "lai-triagem"
 version = "0.1.0"
 description = "Triagem de risco de reencaminhamento de pedidos LAI na plataforma Fala.BR"
 readme = "README.md"
-requires-python = ">=3.12"
+# EXPERIMENTO TEMPORIAN — o teto de 3.12 não é escolha, é imposição.
+#
+# `temporian==0.9.0` é a última versão publicada (16/04/2024) e declara
+# `requires_python: <3.12,>=3.8`. Não há roda para cp312, e o pacote tem
+# extensão em C++ construída com Bazel, de modo que compilar a partir do fonte
+# também não resolve num ambiente `uv` comum — foi tentado e falhou.
+#
+# Ou seja: adotar o Temporian custa **descer a versão do Python do projeto
+# inteiro**. Está medido em docs/auditorias/2026-09-21-temporian.md.
+requires-python = ">=3.11,<3.12"
 license = "GPL-3.0-or-later"
 license-files = ["LICENSE"]
 authors = [{ name = "Lucas Gallindo Martins Soares", email = "lgms@cesar.org.br" }]
@@ -11,12 +20,31 @@ keywords = ["lai", "fala.br", "cgu", "transparencia", "triagem", "lightgbm", "be
 
 # Versões fixadas nas que foram efetivamente usadas no treinamento registrado
 # em docs/TREINAMENTO.md. Trocar qualquer uma delas invalida a reprodução exata.
+#
+# EXPERIMENTO TEMPORIAN — três pinos tiveram de recuar, e nenhum por escolha:
+#
+#   * `pandas` 3.0.5 -> 2.3.3 e `numpy` 2.5.3 -> 1.26.4. O Temporian 0.9.0 até
+#     IMPORTA sob numpy 2 e pandas 3, e é aí que mora o perigo: ele não levanta
+#     erro, ele devolve **conjuntos de eventos vazios** quando o índice é de
+#     texto. Medido na sonda: um `event_set` de 3 eventos indexado por `g`
+#     vira 0 eventos em cada grupo, em silêncio. Como todo índice deste
+#     projeto é texto (órgão, solicitante), a biblioteca que promete impedir
+#     erro por construção erra sem avisar na pilha atual do projeto.
+#   * `temporian` fica em 0.9.0 porque não há mais nada: última publicação em
+#     abril de 2024.
+#
+# Que a reprodução exata sobrevive a esse recuo foi VERIFICADO antes de
+# escrever qualquer linha: `scripts/train.py` sem alteração nenhuma, rodado sob
+# py3.11 + numpy 1.26.4 + pandas 2.3.3, devolve os mesmos 0,1901 de PR-AUC e
+# 24,23% de precisão@5%. Sem esse controle, qualquer diferença medida depois
+# seria indistinguível de efeito de versão.
 dependencies = [
     "lightgbm==4.7.0",
-    "pandas==3.0.5",
-    "numpy==2.5.3",
+    "pandas==2.3.3",
+    "numpy==1.26.4",
     "scikit-learn==1.9.1",
     "pyarrow==25.0.1",
+    "temporian==0.9.0",
 ]
 
 [project.optional-dependencies]
@@ -25,6 +53,18 @@ serve = [
     "bentoml==1.4.39",
     "pydantic==2.13.5",
 ]
+
+# EXPERIMENTO TEMPORIAN — `pandas-stubs` passou a ser dependência do ambiente,
+# e não só do comando de verificação.
+#
+# Com `python_executable` apontando para o ambiente do projeto (ver
+# [tool.mypy], e ver por quê), o `--with pandas-stubs` do `uvx` deixa de ser
+# alcançável: o mypy procura os stubs onde o código roda. Sem eles, `read_csv`
+# volta a ser `Any`, o `type: ignore` de `dados.py` fica sobrando e a checagem
+# de pandas some sem avisar — degradação silenciosa, que é o modo de falha que
+# este projeto mais persegue. `uv sync` instala o grupo `dev` por padrão.
+[dependency-groups]
+dev = ["pandas-stubs>=2.3,<2.4"]
 
 [project.urls]
 Repository = "https://github.com/lgallindo/lai-triagem"
@@ -39,7 +79,7 @@ package = false
 # seriam 183 violações e a 100 são 30. Reformatar 183 linhas que não estão
 # erradas só produziria ruído no diff e esconderia as correções de verdade.
 line-length = 100
-target-version = "py312"
+target-version = "py311"
 extend-exclude = [".venv", "data", "artifacts"]
 
 [tool.ruff.lint]
@@ -67,8 +107,20 @@ python_files = ["test_*.py"]
 addopts = "-q"
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.11"
 files = ["lai_triagem", "service.py"]
+# EXPERIMENTO TEMPORIAN — esta linha não existia, e é consequência do recuo.
+#
+# `uvx --with pandas-stubs mypy` monta um ambiente próprio, em Python 3.13,
+# com numpy 2. Os stubs do numpy 2 usam `type X = ...` (PEP 695), que só é
+# válido a partir do 3.12 — então o mypy configurado para 3.11 morre ao LER o
+# stub, antes de olhar uma linha deste projeto. Apontá-lo para o ambiente do
+# projeto resolve porque lá o numpy é 1.26.4, cujos stubs não usam PEP 695.
+#
+# Ou seja: o recuo de versão que o Temporian impõe também contamina a
+# ferramenta de tipos. Sem `python_executable`, o comando de verificação
+# registrado em docs/TREINAMENTO.md simplesmente não roda neste ramo.
+python_executable = ".venv/bin/python"
 # Começo deliberadamente frouxo: o objetivo da primeira passada é não ter erro
 # de verdade, não anotar tudo. Apertar depois, módulo a módulo.
 ignore_missing_imports = true
