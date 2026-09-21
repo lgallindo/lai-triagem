@@ -71,7 +71,8 @@ ARQUIVOS = sorted(
     [p for p in ROOT.rglob("*.py")
      if ".venv" not in p.parts and "__pycache__" not in p.parts])
 
-RX_CAMINHO = re.compile(r"\b((?:docs|scripts|examples|lai_triagem|artifacts)/[\w./-]+\.(?:md|py|json|txt))")
+RX_CAMINHO = re.compile(
+    r"\b((?:docs|scripts|examples|lai_triagem|artifacts)/[\w./-]+\.(?:md|py|json|txt))")
 
 OBSOLETOS = [
     (re.compile(r"prev_reenc_rate_\w+.{0,40}(informad|enviad|chamador)"),
@@ -156,9 +157,9 @@ for arq in ARQUIVOS:
         if (isinstance(no, ast.Call) and isinstance(no.func, ast.Name)
                 and no.func.id == "print"):
             for a in no.args:
-                if isinstance(a, ast.Constant) and isinstance(a.value, str):
-                    if parece_ingles(a.value):
-                        en_prints[rel] = en_prints.get(rel, 0) + 1
+                if (isinstance(a, ast.Constant) and isinstance(a.value, str)
+                        and parece_ingles(a.value)):
+                    en_prints[rel] = en_prints.get(rel, 0) + 1
 if en_prints:
     notas.append("cadeias de print() em en_US, decisão registrada de manter: "
                  + ", ".join(f"{k} ({v})" for k, v in sorted(en_prints.items())))

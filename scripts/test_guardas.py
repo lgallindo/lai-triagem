@@ -170,8 +170,8 @@ def main():
                 acusou, saida = roda_guarda(guarda)
                 acusou = not acusou            # a guarda deve FALHAR
                 if acusou:
-                    linha = next((l.strip() for l in saida.splitlines()
-                                  if "✗" in l), "")
+                    linha = next((ln.strip() for ln in saida.splitlines()
+                                  if "✗" in ln), "")
                     print(f"  OK    {rotulo}")
                     if linha:
                         print(f"        {linha[:110]}")

@@ -27,9 +27,19 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.train import (  # noqa: E402
-    CAT_BASE, CAT_H6, MATURITY_DAYS, NUM_H6, NUM_PROD, SNAPSHOT, VAL_YEAR, TEST_YEAR,
-    build_features, encode, fit_organ_rate, load_cohort, organ_birth_table,
-    precision_at_k, run_variant,
+    CAT_BASE,
+    CAT_H6,
+    MATURITY_DAYS,
+    NUM_H6,
+    NUM_PROD,
+    SNAPSHOT,
+    TEST_YEAR,
+    VAL_YEAR,
+    build_features,
+    fit_organ_rate,
+    load_cohort,
+    organ_birth_table,
+    run_variant,
 )
 
 CAT_SEM = [c for c in CAT_BASE if c not in CAT_H6]
@@ -87,7 +97,7 @@ def main():
     # A tendência é a evidência.
     solo = [r for r in linhas if r["config"].startswith("treino 202")
             and "+" not in r["config"]]
-    print(f"\n  tendência do ganho (Δ PR-AUC) nos treinos de ano único:")
+    print("\n  tendência do ganho (Δ PR-AUC) nos treinos de ano único:")
     for r in solo:
         print(f"    {r['config'][:28]:<28} {r['d_PR']:+.4f}")
     if len(solo) >= 2:

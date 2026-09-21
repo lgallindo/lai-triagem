@@ -29,12 +29,11 @@ import pandas as pd
 from sklearn.metrics import average_precision_score, roc_auc_score
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from scripts.train import precision_at_k  # noqa: E402
+from lai_triagem.config import INTERIM, READ_KW  # noqa: E402
+from lai_triagem.dados import limpar  # noqa: E402
+from lai_triagem.metricas import precision_at_k  # noqa: E402
 
-ROOT = Path.home() / "lai-triagem"
-INTERIM = ROOT / "data" / "interim"
 SNAP = "20260914"
-READ_KW = dict(sep=";", encoding="utf-16", dtype=str, na_values=[" ", ""], keep_default_na=True)
 TRAIN_YEARS, VAL_YEAR, TEST_YEAR = [2022, 2023, 2024], 2025, 2026
 MATURITY_DAYS = 60
 SEED = 42
@@ -63,11 +62,9 @@ GROUPS = {
 
 
 def _clean(df):
-    df.columns = [c.strip() for c in df.columns]
-    for c in df.columns:
-        if df[c].dtype == object:
-            df[c] = df[c].str.strip()
-    return df
+    # P1: uma implementacao so, em lai_triagem/dados.py. Esta funcao ja esteve
+    # duplicada em seis arquivos e a correcao do H9 alcancou apenas um.
+    return limpar(df)
 
 
 def load_all():
@@ -204,7 +201,8 @@ def main():
     n = len(df)
     anon = df.is_anonymous.eq(1)
     print(f"  linhas                                        {n:,}")
-    print(f"  IdSolicitante == '0' (anonimizado)            {anon.sum():,} ({100*anon.mean():.2f}%)")
+    print(f"  IdSolicitante == '0' (anonimizado)            "
+          f"{anon.sum():,} ({100*anon.mean():.2f}%)")
     print(f"  Escolaridade ausente                          {df.escolaridade_missing.sum():,}"
           f" ({100*df.escolaridade_missing.mean():.2f}%)")
     print(f"    ...destes, com IdSolicitante VÁLIDO         "

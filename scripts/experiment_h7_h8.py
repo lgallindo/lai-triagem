@@ -120,7 +120,8 @@ for nome, transforma in VARIANTES:
     resultados[nome] = {"modelo": m["test_matured"], "base": linha_base}
 
 print(f"\n{'=' * 78}\nRESUMO — teste 2026 maturado\n{'=' * 78}")
-cab = f"{'variante':10s} {'PR-AUC':>8s} {'base':>8s} {'prec@5%':>9s} {'base@5%':>9s} {'modelo-base':>12s}"
+cab = (f"{'variante':10s} {'PR-AUC':>8s} {'base':>8s} "
+       f"{'prec@5%':>9s} {'base@5%':>9s} {'modelo-base':>12s}")
 print(cab)
 print("-" * len(cab))
 for nome, r in resultados.items():

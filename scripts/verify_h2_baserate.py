@@ -21,13 +21,16 @@ As duas previsões são opostas, portanto a identidade dos órgãos de taxa mais
 alta decide a questão.
 """
 
+
+import sys
 from pathlib import Path
 
 import pandas as pd
 
-INTERIM = Path.home() / "lai-triagem" / "data" / "interim"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from lai_triagem.config import INTERIM, READ_KW  # noqa: E402
+
 SNAP = "20260914"
-READ_KW = dict(sep=";", encoding="utf-16", dtype=str, na_values=[" ", ""], keep_default_na=True)
 COLS = ["IdPedido", "OrgaoDestinatario", "FoiReencaminhado", "Situacao"]
 
 fr = []
@@ -101,4 +104,7 @@ arrival-time feature.
 Residual caveat: the 459 rows with Situacao == 'Encaminhada por Outro Órgão'
 are in transit and their OrgaoDestinatario is the receiver. Exclude that status
 from training, or treat those rows as post-forwarding.
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from lai_triagem.config import INTERIM  # noqa: E402
 """)

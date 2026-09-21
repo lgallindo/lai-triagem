@@ -33,3 +33,44 @@ Repository = "https://github.com/lgallindo/lai-triagem"
 [tool.uv]
 # O ambiente é gerido por uv. Não editar à mão nem usar pip diretamente.
 package = false
+
+[tool.ruff]
+# 100 colunas, e não as 88 padrão, porque este código foi escrito assim: a 88
+# seriam 183 violações e a 100 são 30. Reformatar 183 linhas que não estão
+# erradas só produziria ruído no diff e esconderia as correções de verdade.
+line-length = 100
+target-version = "py312"
+extend-exclude = [".venv", "data", "artifacts"]
+
+[tool.ruff.lint]
+# E/W pycodestyle, F pyflakes, I ordenação de imports, B bugbear,
+# UP modernização, SIM simplificação, C4 comprehensions.
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "C4"]
+# C408 (`dict(a=1)` em vez de `{"a": 1}`) fica desligada de propósito. Os usos
+# aqui são listas de parâmetro — `READ_KW = dict(sep=";", encoding="utf-16",
+# ...)` e os hiperparâmetros do LightGBM — e a forma com palavra-chave lê-se
+# melhor que o literal com aspas. Desligada por escolha declarada, não por
+# preguiça: as outras 41 foram corrigidas, não silenciadas.
+ignore = ["C408"]
+
+[tool.ruff.lint.per-file-ignores]
+# Os scripts de verificação imprimem tabelas largas; quebrar a string só para
+# caber piora a leitura de quem confere o número contra a saída.
+"scripts/verify_*.py" = ["E501"]
+
+[tool.pytest.ini_options]
+# `test_metrics.py` e `test_guardas.py` ainda são scripts com `assert` manual,
+# executáveis por `uv run python`. Esta seção existe para que a migração para
+# pytest não precise mexer em configuração depois.
+testpaths = ["scripts"]
+python_files = ["test_*.py"]
+addopts = "-q"
+
+[tool.mypy]
+python_version = "3.12"
+files = ["lai_triagem", "service.py"]
+# Começo deliberadamente frouxo: o objetivo da primeira passada é não ter erro
+# de verdade, não anotar tudo. Apertar depois, módulo a módulo.
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true

@@ -214,7 +214,7 @@ for doc in VIGENTES:
 ganhos_brutos = booster.feature_importance(importance_type="gain")
 total_ganho = float(ganhos_brutos.sum())
 GANHO = {n: 100.0 * g / total_ganho
-         for n, g in zip(booster.feature_name(), ganhos_brutos)}
+         for n, g in zip(booster.feature_name(), ganhos_brutos, strict=True)}
 
 RX_LINHA_TABELA = re.compile(r"^\|\s*`([^`]+)`")
 RX_PCT = re.compile(r"(\d+,\d+)%")

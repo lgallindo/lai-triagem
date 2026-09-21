@@ -63,7 +63,7 @@ class Preprocessor:
         self.calibration: dict = meta.get("calibration") or {}
 
     @classmethod
-    def from_json(cls, path: str | Path) -> "Preprocessor":
+    def from_json(cls, path: str | Path) -> Preprocessor:
         return cls(json.loads(Path(path).read_text(encoding="utf-8")))
 
     def check_no_leakage(self, payload: dict) -> None:
