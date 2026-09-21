@@ -423,6 +423,7 @@ These are unavailable when a request arrives; see docs/VERIFICATION.md.
 | Caminho | Papel |
 |---|---|
 | [`docs/RESULTADOS.md`](docs/RESULTADOS.md) | O relatório de pesquisa: o resultado, como ele encolheu, e as limitações. Este README é o tutorial; aquele é a avaliação |
+| [`docs/LINHA_BASE_COMPLEXIDADE.md`](docs/LINHA_BASE_COMPLEXIDADE.md) | Medida do estado atual do código, para comparar com as versões em Temporian e Featuretools |
 | [`docs/METRICAS.md`](docs/METRICAS.md) | **Gerado** por train.py; fonte única de todo número de desempenho |
 | [`docs/DECISAO_ESTADO_SOLICITANTE.md`](docs/DECISAO_ESTADO_SOLICITANTE.md) | Onde vive o histórico do solicitante e por quê — decisão de proteção de dados |
 | [`docs/auditorias/`](docs/auditorias/INDICE.md) | Auditorias, um arquivo por data: o que outros agentes — e o roteiro mecânico — encontraram neste trabalho |
