@@ -74,15 +74,70 @@ linhas suba.
 
 ## Como comparar, depois
 
-Rodar as mesmas três medidas em cada ramo e preencher:
+Rodar as mesmas três medidas em cada ramo e preencher. Esta cópia está no ramo
+`experimento/featuretools`, então preenche a coluna dele; a do Temporian é
+preenchida na cópia do outro ramo.
 
 | Medida | `main` (hoje) | Temporian | Featuretools |
 |---|---|---|---|
-| Linhas de código de variáveis | 235 | | |
-| Complexidade média | A (4,03) | | |
-| **Invariantes à mão** | **14** | | |
-| precisão@5% no teste maturado | 24,23% | | |
-| PR-AUC no teste maturado | 0,1901 | | |
+| Linhas de código de variáveis | 235 | | *ver abaixo* |
+| Complexidade média | A (4,03) | | A (3,79) |
+| **Invariantes à mão** | **14** | | **11** |
+| precisão@5% no teste maturado | 24,23% | | 24,23% |
+| PR-AUC no teste maturado | 0,1901 | | 0,1901 |
+| tempo de construção das variáveis | 3,4 s | | **3.325 s** |
+
+A última linha não estava prevista, e entrou porque sem ela a comparação
+mentiria por omissão: 3,4 s contra 55 minutos é uma diferença de natureza, não
+de grau. Detalhe em [`auditorias/`](auditorias/INDICE.md).
+
+### Correção de método: o 235 foi medido com duas réguas
+
+Achado ao preencher a coluna, e registrado aqui porque invalida comparação,
+não só estética. As quatro funções de `train.py` foram contadas pela
+**extensão de linhas** — `build_features` = 117 é exatamente 357 − 241 + 1,
+comentário e linha em branco inclusive —, enquanto `codificacao.py` (20) e
+`dados.py` (18) vieram do **SLOC do `radon`**, que descarta comentário e
+docstring. Os dois últimos batem com `uvx radon raw` na casa decimal; os
+quatro primeiros, não.
+
+Somar as duas réguas dá 235, e 235 não se compara com nada. Pior: contar
+comentário como linha de código pune quem documenta, o que neste projeto é
+incentivo invertido.
+
+Recontado tudo por SLOC do `radon`, que é a régua que a própria tabela já
+usava para metade das linhas:
+
+| Medida | `main` | Temporian | Featuretools |
+|---|---|---|---|
+| construção de variáveis | 103 | | 180 |
+| `lai_triagem/codificacao.py` | 20 | | 20 |
+| `lai_triagem/dados.py` | 18 | | 18 |
+| **total, régua única** | **141** | | **218** |
+
+Comandos, para que não haja uma terceira régua:
+
+```bash
+uvx radon raw lai_triagem/codificacao.py
+uvx radon cc scripts/train.py lai_triagem/ -a
+uv run python scripts/conta_invariantes.py
+```
+
+O escopo do `radon cc` acima é o que reproduz os 29 blocos e o A (4,03)
+publicados — foi conferido antes de medir qualquer ramo.
+
+### A contagem de invariantes virou script
+
+Estava sendo feita a olho, e medida contada a olho não se compara entre ramos.
+`scripts/conta_invariantes.py` aplica a regra desta página de forma executável
+e devolve **14** em `develop`, o que serve de aferição: a régua reproduz a
+contagem à mão que substitui.
+
+Ela relata **duas** contagens, e a segunda existe por um motivo concreto. A
+regra publicada só conhece o vocabulário do pandas, e uma implementação que
+troque de vocabulário pode zerá-la sem ter removido risco nenhum. A segunda
+contagem são as invariantes declaradas no código com o comentário
+`# INVARIANTE:`, que é `grep`-ável e auditável uma a uma.
 
 Os dois últimos vêm de [`METRICAS.md`](METRICAS.md), que é gerado pelo
 treinamento.

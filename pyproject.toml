@@ -11,12 +11,29 @@ keywords = ["lai", "fala.br", "cgu", "transparencia", "triagem", "lightgbm", "be
 
 # Versões fixadas nas que foram efetivamente usadas no treinamento registrado
 # em docs/TREINAMENTO.md. Trocar qualquer uma delas invalida a reprodução exata.
+#
+# EXPERIMENTO FEATURETOOLS — `pandas` recuou de 3.0.5 para 2.3.3, e não por
+# escolha. O Featuretools guarda o esquema das tabelas num acessor do pandas
+# (`df.ww`), do pacote `woodwork`. Em pandas 3.0.5 esse estado **não
+# sobrevive**: `df.ww.init(...)` roda sem erro e, na linha seguinte,
+# `df.ww.schema` é `None`. A primeira chamada de `add_dataframe` morre com
+# `WoodworkNotInitError`. Não há como usar a biblioteca na pilha atual.
+#
+# `setuptools<81` porque o `woodwork` importa `pkg_resources` no topo do
+# módulo, e o setuptools 81 o removeu. Dependência de uma API que a própria
+# comunidade aposentou.
+#
+# Que a reprodução exata sobrevive ao recuo foi VERIFICADO antes de escrever
+# qualquer linha: `scripts/train.py` sem alteração nenhuma, sob py3.12 +
+# pandas 2.3.3, devolve os mesmos 0,1901 de PR-AUC e 24,23% de precisão@5%.
 dependencies = [
     "lightgbm==4.7.0",
-    "pandas==3.0.5",
+    "pandas==2.3.3",
     "numpy==2.5.3",
     "scikit-learn==1.9.1",
     "pyarrow==25.0.1",
+    "featuretools==1.31.0",
+    "setuptools<81",
 ]
 
 [project.optional-dependencies]

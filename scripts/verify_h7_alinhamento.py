@@ -31,8 +31,15 @@ import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 import train  # noqa: E402
+
+from lai_triagem.variaveis_featuretools import (  # noqa: E402
+    POR_PAR,
+    POR_SOLICITANTE,
+    desfechos_defasados,
+)
 
 
 def linha(t=""):
@@ -58,9 +65,14 @@ if sub.index.max() > len(sub) - 1:
     print("  -> há rótulo além do fim das posições: `reindex` devolverá NaN "
           "para esses, e valor de OUTRA linha para os demais")
 
-cum_y, cum_n, order = train.lagged_outcome_sums(sub, ["IdSolicitante"])
-print(f"\n`order` devolvido        : {order[:6]} ... {order[-3:]}")
-print(f"`order` é RangeIndex 0..n-1? {bool((order == np.arange(len(order))).all())}")
+print("\nNESTE RAMO a pergunta acima mudou de natureza. `lagged_outcome_sums`")
+print("não existe mais: quem calcula é `desfechos_defasados`, que pede ao")
+print("Featuretools a agregação até `t - 60d`. O `merge_asof` sumiu, mas a")
+print("JUNÇÃO NÃO: a biblioteca proíbe corte duplicado, então o resultado sai")
+print("deduplicado e é recasado às linhas por (chave, corte). É a mesma classe")
+print("de operação do H7, em outra roupa — e por isso continua sendo conferida")
+print("aqui, contra a reconstrução sabidamente correta.")
+
 
 # Reconstrução CORRETA: preserva o rótulo original antes do merge_asof.
 def correto(sub, keys, lag_days=train.MATURITY_DAYS):
@@ -79,11 +91,12 @@ def correto(sub, keys, lag_days=train.MATURITY_DAYS):
     return (pd.Series(m.cum_y.fillna(0.0).to_numpy(), index=rotulos).reindex(sub.index),
             pd.Series(m.cum_n.fillna(0.0).to_numpy(), index=rotulos).reindex(sub.index))
 
-for keys, rotulo in ((["IdSolicitante"], "prev_reenc_solicitante"),
-                     (["IdSolicitante", "OrgaoDestinatario"], "prev_reenc_neste_orgao")):
-    cy, cn, order = train.lagged_outcome_sums(sub, keys)
-    atual = pd.Series(cy, index=order).reindex(sub.index)      # como está hoje
-    certo, certo_n = correto(sub, keys)                        # como deveria ser
+for keys, alvo, rotulo in ((["IdSolicitante"], POR_SOLICITANTE, "prev_reenc_solicitante"),
+                           (["IdSolicitante", "OrgaoDestinatario"], POR_PAR,
+                            "prev_reenc_neste_orgao")):
+    cy, cn = desfechos_defasados(df, sub, alvo)
+    atual = pd.Series(cy, index=sub.index)                     # Featuretools
+    certo, certo_n = correto(sub, keys)                        # referência à mão
 
     nan_atual = int(atual.isna().sum())
     nan_certo = int(certo.isna().sum())
@@ -93,13 +106,16 @@ for keys, rotulo in ((["IdSolicitante"], "prev_reenc_solicitante"),
     soma_certo = float(certo.fillna(0).sum())
 
     linha(f"H7 — {rotulo}")
-    print(f"NaN hoje                 : {nan_atual:,}  ({100*nan_atual/len(sub):.1f}% das linhas)")
-    print(f"NaN corrigido            : {nan_certo:,}")
+    print(f"NaN pelo Featuretools    : {nan_atual:,}")
+    print(f"NaN pela referência      : {nan_certo:,}")
     print(f"ambos preenchidos, diferem: {difere:,}")
-    print(f"soma dos desfechos hoje  : {soma_atual:,.0f}")
-    print(f"soma corrigida           : {soma_certo:,.0f}")
+    print(f"soma dos desfechos, Featuretools: {soma_atual:,.0f}")
+    print(f"soma dos desfechos, referência  : {soma_certo:,.0f}")
     if nan_atual > nan_certo or difere:
-        print("  -> CONFIRMADO: o histórico está sendo atribuído às linhas erradas")
+        print("  -> REGRESSÃO: o histórico está sendo atribuído às linhas erradas")
+    else:
+        print("  -> bate linha a linha. A junção de volta está correta HOJE; o")
+        print("     que mudou é que ela é conferida, não que deixou de existir.")
 
 # ---------------------------------------------------------------- H8
 linha("H8 — o prior das taxas móveis usa rótulo de validação e teste?")

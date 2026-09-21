@@ -12,6 +12,7 @@ gerado pelo treinamento.
 | [18/09/2026](2026-09-18-camadas-0-1.md) | o próprio autor, roteiro fixado antes | camadas 0 e 1: guardas e reprodutibilidade | 6, dos quais **2 GRAVES** |
 | [18/09/2026](2026-09-18-camadas-2-3.md) | `codex` (`gpt-5.6-sol`), fornecedor terceiro | camada 3: o README é seguível por iniciante? camada 2: código e dados | 10, dos quais **2 GRAVES** — um deles mudou o resultado principal |
 | [21/09/2026](2026-09-21-boas-praticas.md) | o próprio autor, com `ruff` e `mypy` | adequação a boas práticas antes de comparar bibliotecas | 1 defeito **vivo** (H9 corrigido em 1 de 6 cópias), 1 achado pelo mypy, e o **H10**, maior ganho de todo o processo |
+| [21/09/2026](2026-09-21-featuretools.md) | o próprio autor, roteiro fixado antes | ramo `experimento/featuretools`: o `cutoff_time` cumpre a promessa de impedir vazamento por construção? | resultado reproduzido na casa decimal; **nenhum** dos 3 defeitos graves fica fora de alcance; o corte inclui o próprio rótulo por padrão, `training_window` devolve **zero em silêncio** sem `add_last_time_indexes()`, e a construção ficou **978× mais lenta** |
 
 ## O que estas auditorias têm em comum
 
