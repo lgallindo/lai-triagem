@@ -66,9 +66,12 @@ REFRESHABLE = {"organ_rate_movel_90d", "organ_rate_movel_365d", "organ_birth",
 
 def _clean(df):
     df.columns = [c.strip() for c in df.columns]
-    for c in df.columns:
-        if df[c].dtype == object:
-            df[c] = df[c].str.strip()
+    # H9: testar `dtype == object` NAO funciona -- READ_KW passa `dtype=str` e o
+    # pandas moderno devolve o dtype `str` (PDEP-14). A condicao nunca era
+    # verdadeira e a funcao era no-op. Ver scripts/train.py e
+    # docs/auditorias/2026-09-18-camadas-2-3.md.
+    for c in df.select_dtypes(include=["object", "string"]).columns:
+        df[c] = df[c].str.strip()
     return df
 
 

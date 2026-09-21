@@ -31,7 +31,7 @@ YEARS = [2022, 2023, 2024, 2025, 2026]
 
 def _clean(df):
     df.columns = [c.strip() for c in df.columns]
-    for c in df.columns:
+    for c in df.select_dtypes(include=["object", "string"]).columns:
         df[c] = df[c].str.strip()
     return df
 
