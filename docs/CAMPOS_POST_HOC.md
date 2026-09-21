@@ -265,3 +265,31 @@ Para qualquer projeto de predição sobre dados abertos administrativos:
 8. **Imponha a exclusão em tempo de execução**, não apenas na documentação.
 9. **Desconfie da sua melhor variável.** Neste projeto, a de maior ganho era
    vazamento nas duas vezes que olhamos.
+
+
+---
+
+## Tabela de exclusões, movida do README em 21/09/2026
+
+### Campos excluídos, e por quê
+
+Toda exclusão é **empírica**, não precaucional. Os testes estão em
+[`docs/VERIFICATION.md`](VERIFICATION.md). O serviço **recusa** qualquer
+requisição que contenha um destes campos.
+
+| Campo excluído | Momento real de preenchimento | Razão da exclusão |
+|---|---|---|
+| `FoiReencaminhado` | após o encaminhamento | É o próprio alvo |
+| `PrazoAtendimento` / `prazo_dias` | reescrito na prorrogação | Mediana 21 d sem prorrogação vs **31 d** com — exatamente os +10 d do art. 11 §2 da LAI. Reimportava `FoiProrrogado`. Detinha **40,5% do ganho** e inflava a PR-AUC em **+22 pp** |
+| `FoiProrrogado` | ao conceder a prorrogação | Posterior à triagem |
+| `AssuntoPedido` | atribuído **durante** a triagem | **79,6% ausente** em pedidos com 3 dias; 0,000% após respondidos. É saída da triagem, não entrada |
+| `SubAssuntoPedido` | idem | 87,5% ausente com 3 dias; ~49% ausente mesmo no longo prazo |
+| `Tag` | marcação posterior do SIC | 78,4% ausente; classificação feita depois |
+| `Situacao` | estado corrente | Codifica o desfecho |
+| `DataResposta`, `Decisao`, `EspecificacaoDecisao`, `DetalhamentoDecisao`, `MotivoNegativaAcesso`, `PrazoRestricaoAcesso` | após a resposta | Posteriores à decisão |
+| `ProtocoloPedido` / `protocolo_seq` | atribuído na abertura, mas pela **unidade registradora** | A fatia `[5:11]` do protocolo não é um sequencial neutro: separa **79×** dentro de um mesmo órgão-ano (INSS 2022: 28,38% no 1º quarto contra 0,36% no 4º). Codifica qual unidade registrou, cujo comportamento de encaminhamento é quase determinístico (H5) |
+| texto do pedido (`ResumoSolicitacao`, `DetalhamentoSolicitacao`) | na abertura | Disponível, mas **fora de escopo** pelo Termo de Abertura. Exige os arquivos `_Filtrado` (~80 MB/ano contra 7–9 MB) |
+
+Também são removidas da modelagem as **459 linhas** com
+`Situacao == "Encaminhada por Outro Órgão"`: estão em trânsito, de modo que seu
+`OrgaoDestinatario` é o receptor, não o endereçado.

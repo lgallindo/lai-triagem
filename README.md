@@ -7,74 +7,17 @@ aos pedidos com maior chance de roteamento incorreto.
 
 > ## Leia antes de usar o escore
 >
+> Este arquivo é o **manual de uso**: instala, sobe o serviço, faz a primeira
+> chamada. Ele não discute se o modelo presta.
+>
+> Essa discussão existe e é desfavorável ao próprio modelo. Antes de usar o
+> escore para decidir qualquer coisa, leia
+> [`docs/RESULTADOS.md`](docs/RESULTADOS.md) — em uma frase: **o modelo não
+> supera uma consulta à taxa histórica do órgão**, que é uma tabela de uma
+> linha.
+>
 > *Termo desconhecido? O [glossário](#glossário) no fim deste arquivo explica 26
-> deles, em uma frase cada — inclusive os que aparecem logo abaixo.*
->
-> Cinco famílias de variáveis foram **excluídas por vazamento**, incluindo as
-> duas de maior ganho aparente: `prazo_dias` (+22 pp de PR-AUC) e `protocolo_seq`
-> (+26 pp). O serviço mantém `/score_baseline` — a consulta por órgão, sem
-> modelo — como comparação permanente, porque houve uma fase do projeto em que
-> ela empatava com o modelo. Hoje não empata mais, e a auditoria completa está em
-> [`docs/VERIFICATION.md`](docs/VERIFICATION.md) e
-> [`docs/CAMPOS_POST_HOC.md`](docs/CAMPOS_POST_HOC.md).
->
-> **Este arquivo é o tutorial**, e vai do zero à primeira resposta HTTP. A
-> avaliação do modelo — o resultado, como ele encolheu sob auditoria, e as sete
-> limitações conhecidas — está em
-> [`docs/RESULTADOS.md`](docs/RESULTADOS.md). Leia antes de usar o escore para
-> decidir qualquer coisa.
-
-## Resultado principal
-
-Conjunto de teste 2026 maturado (registrados com ≥60 dias de antecedência do
-retrato), treino em 2022–2024, validação em 2025. Taxa-base 5,75%.
-Todos os números de desempenho vivem em [`docs/METRICAS.md`](docs/METRICAS.md),
-que é **gerado pelo treinamento** — este README não os repete, para não
-envelhecer. O quadro no fecho desta seção:
-
-| Escore, teste 2026 maturado | PR-AUC | prec@5% |
-|---|---|---|
-| Consulta histórica por órgão (sem modelo) | 0,1641 | **24,80%** |
-| LightGBM | 0,1789 | 21,79% |
-
-**O modelo NÃO supera a consulta por órgão na métrica primária.** Perde **12,1%**
-em precisão@5% — a fila que o produto de fato entrega. Ganha 9,0% em PR-AUC,
-empata em precisão@10%, e nada disso compensa.
-
-A explicação está no ganho por variável: `orgao_rate` 39,98% +
-`OrgaoDestinatario` 15,98% + as duas taxas móveis 16,18% somam **72,14% de
-identidade do órgão**. Todo o histórico do solicitante soma **10,27%**. Contando
-também a idade do órgão, a identidade do órgão chega a 74,98%. O modelo é,
-essencialmente, a tabela de consulta com enfeites.
-
-> **Estes números de conclusão são mantidos à mão.** O
-> `scripts/atualiza_numeros_docs.py` regenera as tabelas de ganho, os blocos de
-> resposta e os decimais de seis casas; este parágrafo usa quatro casas e fica
-> fora do alcance dele e do `check_prosa.py`. Foi aqui que morou o "84,8%"
-> errado. Ao retreinar, confira este parágrafo contra
-> [`docs/METRICAS.md`](docs/METRICAS.md) à mão.
-
-> **Este número já foi muito melhor, e era vazamento.** Versões anteriores
-> anunciavam +26,4% sobre a linha de base. Três auditorias independentes
-> mostraram que o ganho vinha de defeitos nas variáveis de histórico, e ele
-> desapareceu quando foram corrigidos. A história completa, com os números e o
-> que cada auditoria achou, está em
-> [`docs/RESULTADOS.md`](docs/RESULTADOS.md).
-
-## As variáveis demográficas
-
-O modelo **usa** escolaridade, profissão, gênero e residência do solicitante,
-porque o Termo de Abertura do projeto as inclui no escopo. Elas somam pouco do
-ganho, e vêm com uma limitação declarada (**H6**): o cadastro da CGU é um
-retrato de hoje, não o perfil de quando o pedido foi feito.
-
-Isso foi medido e não prejudica o modelo de forma detectável. A prova, os
-números e o contrafactual de removê-las estão em
-[`docs/RESULTADOS.md`](docs/RESULTADOS.md).
-
-O dado pessoal que o serviço recebe — perfil e contadores de histórico — **não é
-retido no artefato**. Ver
-[`docs/DECISAO_ESTADO_SOLICITANTE.md`](docs/DECISAO_ESTADO_SOLICITANTE.md).
+> deles, em uma frase cada.*
 
 ## Contrato de dados: o que o chamador informa
 
@@ -276,17 +219,18 @@ solicitante — e, neste caso, o histórico deste veterano **atenuava** o risco:
 saber que ele já fez 80 pedidos, 12 neste órgão, e que nenhum foi reencaminhado
 aqui, baixa o escore em relação a não saber nada.
 
-Por que a calibração é só para leitura: no teste maturado, ordenar pelo escore
-calibrado custa **0,33 pp** de precisão@5% (23,74% no cru contra 23,41% no
-calibrado). A regressão isotônica é feita de degraus, e um degrau empata casos
-que o escore cru separava — então a fila é sempre ordenada pelo escore cru.
+**Regra prática:** ordene a fila pelo `probabilidade_reencaminhamento`, o
+escore cru. O `probabilidade_calibrada` serve para leitura humana — dá para
+lê-lo como probabilidade — mas **não** para ordenar: ele empata casos que o
+escore cru separava, e ordenar por ele custa precisão. O quanto custa, e por
+quê, está em [`docs/RESULTADOS.md`](docs/RESULTADOS.md).
 
 > **O histórico é um conjunto de tudo-ou-nada.** Se você mandar alguns dos oito
 > campos e não todos, o serviço **descarta o conjunto inteiro** e avisa em
 > `historico_parcial_ignorado: true`. Meio histórico produziria uma combinação
 > que nunca aparece no treinamento.
 
-## Passo 6 — comparar com a linha de base
+## Passo 6 — a consulta por órgão, sem modelo
 
 ```bash
 curl -sS -X POST http://localhost:3000/score_baseline -H 'Content-Type: application/json' -d '{"pedido":{"OrgaoDestinatario":"CC-PR – Casa Civil da Presidência da República","DataRegistro":"15/09/2026"}}'
@@ -303,10 +247,13 @@ Resposta:
 }
 ```
 
-Retorna `0.478643`, a taxa histórica crua do órgão. O modelo distingue
-estreante de veterano e a consulta não — mas essa distinção **não se traduz** em
-ganho de precisão@5%: 24,80% da base contra 23,74% do modelo. Mantemos o
-endpoint porque a comparação é o achado.
+Retorna `0.478643`, a taxa histórica crua deste órgão, sem modelo nenhum: é uma
+consulta a uma tabela. O endpoint existe para você poder comparar as duas
+respostas a qualquer momento.
+
+Vale a pena comparar, e o resultado surpreende — mas isso é assunto do relatório
+de avaliação, não deste manual. Está em
+[`docs/RESULTADOS.md`](docs/RESULTADOS.md).
 
 ## Passo 7 (opcional) — sem BentoML
 
@@ -345,36 +292,36 @@ resto é opcional e ausência é tratada como valor faltante.
 
 | Campo | Origem | Tipo | Uso no modelo | Razão da inclusão |
 |---|---|---|---|---|
-| `OrgaoDestinatario` | Pedidos | categórico | **15,98%** do ganho; alimenta as tabelas por órgão, que somam 56,69% | Órgão a que o cidadão endereçou. Sobreviveu à auditoria H2: é o endereçado, não o destinatário final |
+| `OrgaoDestinatario` | Pedidos | categórico | usada; alimenta as tabelas por órgão | Órgão a que o cidadão endereçou. **Obrigatório.** É o endereçado, não o destinatário final |
 | `DataRegistro` | Pedidos | data, **`dd/mm/aaaa`** | deriva `reg_month`, `reg_dow`, `reg_day` | Único carimbo temporal disponível na chegada. Formato obrigatório: `15/09/2026` |
 | `Esfera` | Pedidos | categórico | baixo | Federal/estadual/municipal; separa regimes de competência |
 | `UF` | Pedidos | categórico | baixo | UF do pedido quando não federal |
-| `Municipio` | Pedidos | categórico | 0,44% | Município do pedido quando não federal |
+| `Municipio` | Pedidos | categórico | usada | Município do pedido quando não federal |
 | `FormaResposta` | Pedidos | categórico | baixo | Escolhida pelo solicitante **na abertura** — logo, disponível |
-| `OrigemSolicitacao` | Pedidos | categórico | 0,55% | Balcão SIC vs Internet; definido na abertura |
-| `TipoDemandante` | Solicitantes | categórico | 0,27% | Pessoa física/jurídica |
+| `OrigemSolicitacao` | Pedidos | categórico | usada | Balcão SIC vs Internet; definido na abertura |
+| `TipoDemandante` | Solicitantes | categórico | usada | Pessoa física/jurídica |
 | `Genero` | Solicitantes | categórico | baixo | Perfil; 70,7% ausente |
 | `Escolaridade` | Solicitantes | categórico | baixo | Perfil; **76,2% ausente** — central na auditoria de equidade |
-| `Profissao` | Solicitantes | categórico | 0,43% | Perfil; 76,9% ausente |
+| `Profissao` | Solicitantes | categórico | usada | Perfil; 76,9% ausente |
 | `TipoPessoaJuridica` | Solicitantes | categórico | baixo | Vazio para pessoa física |
 | `Pais` | Solicitantes | categórico | baixo | País de residência |
-| `UF_sol` | Solicitantes | categórico | 0,43% | UF de residência; alimenta `uf_match` |
-| `Municipio_sol` | Solicitantes | categórico | **8,45%** | Município de residência — quarto sinal mais forte |
+| `UF_sol` | Solicitantes | categórico | usada | UF de residência; alimenta `uf_match` |
+| `Municipio_sol` | Solicitantes | categórico | usada | Município de residência — quarto sinal mais forte |
 | `DataNascimento` | Solicitantes | data, **`dd/mm/aaaa`** | deriva `idade` (0,87%) | Idade na data do registro; descartada fora de 10–110 anos |
 
 ## Variáveis derivadas — lado do órgão (embarcadas no artefato)
 
 Conduta de entidade pública; sem dado pessoal. Reajustadas a cada retreinamento.
 
-| Derivada | Fórmula | Ganho |
-|---|---|---|
-| `orgao_rate` | taxa histórica suavizada do órgão, ajustada **só nos anos de treino** (prior 50 × taxa-base) | **39,98%** |
-| `orgao_rate_movel_90d` | taxa em janela móvel de 90 d, **defasada 60 d**; prior de suavização também só do treino | **9,16%** |
-| `orgao_rate_movel_365d` | idem, 365 d | 7,02% |
-| `dias_desde_primeiro_pedido_do_orgao` | idade do órgão; datada de 2012 em diante | 2,84% |
-| `idade` | `DataRegistro − DataNascimento`, em anos | baixo |
-| `reg_month`, `reg_dow`, `reg_day` | componentes de `DataRegistro` | baixo |
-| `uf_match` | `UF_sol == UF` | baixo |
+| Derivada | Fórmula |
+|---|---|
+| `orgao_rate` | taxa histórica suavizada do órgão, ajustada **só nos anos de treino** (prior 50 × taxa-base) |
+| `orgao_rate_movel_90d` | taxa em janela móvel de 90 d, **defasada 60 d**; prior de suavização também só do treino |
+| `orgao_rate_movel_365d` | idem, 365 d |
+| `dias_desde_primeiro_pedido_do_orgao` | idade do órgão; datada de 2012 em diante |
+| `idade` | `DataRegistro − DataNascimento`, em anos |
+| `reg_month`, `reg_dow`, `reg_day` | componentes de `DataRegistro` |
+| `uf_match` | `UF_sol == UF` |
 
 ## Variáveis de histórico — informadas pelo chamador
 
@@ -383,55 +330,41 @@ Dado pessoal; **não embarcadas** no artefato. São **oito campos, e o conjunto
 `-1`. Não existe "mandar alguns". Meio histórico produziria uma combinação de
 valores que nunca aparece no treinamento, e o escore não teria significado.
 
-| Campo | Significado | Ganho |
-|---|---|---|
-| `n_pedidos_previos_neste_orgao` | pedidos anteriores deste solicitante **a este órgão** | **2,35%** |
-| `n_pedidos_previos` | total de pedidos anteriores (agregado) | 1,43% |
-| `n_orgaos_distintos_previos` | amplitude: quantos órgãos distintos já acionou | 1,26% |
-| `dias_desde_ultimo_pedido` | recência da última interação; `-1` se não houver | 0,93% |
-| `prev_reenc_solicitante` | reencaminhamentos anteriores, **numerador** | 0,45% |
-| `prev_reenc_neste_orgao` | idem, restrito a este órgão, **numerador** | 0,21% |
-| `prev_reenc_solicitante_den` | **denominador maturado** do numerador acima | — |
-| `prev_reenc_neste_orgao_den` | **denominador maturado**, restrito a este órgão | — |
+| Campo | Significado |
+|---|---|
+| `n_pedidos_previos_neste_orgao` | pedidos anteriores deste solicitante **a este órgão** |
+| `n_pedidos_previos` | total de pedidos anteriores (agregado) |
+| `n_orgaos_distintos_previos` | amplitude: quantos órgãos distintos já acionou |
+| `dias_desde_ultimo_pedido` | recência da última interação; `-1` se não houver |
+| `prev_reenc_solicitante` | reencaminhamentos anteriores, **numerador** |
+| `prev_reenc_neste_orgao` | idem, restrito a este órgão, **numerador** |
+| `prev_reenc_solicitante_den` | **denominador maturado** do numerador acima |
+| `prev_reenc_neste_orgao_den` | **denominador maturado**, restrito a este órgão |
 
-Os dois denominadores não recebem ganho próprio porque não entram no modelo
-como variáveis: o serviço usa cada par numerador/denominador para calcular
-internamente as razões `prev_reenc_rate_neste_orgao` (**2,41%** de ganho, a
-quarta variável de histórico mais forte) e `prev_reenc_rate_solicitante`
-(1,18%). Elas **não** devem ser enviadas pelo
-chamador — eram entradas em versões anteriores e deixaram de ser quando a
-maturação de 60 dias passou a ser aplicada ao denominador.
+Os dois denominadores não entram no modelo como variáveis: o serviço usa cada
+par numerador/denominador para calcular internamente as razões
+`prev_reenc_rate_neste_orgao` e `prev_reenc_rate_solicitante`. Essas duas
+**não** devem ser enviadas pelo chamador — eram entradas em versões anteriores
+e deixaram de ser quando a maturação de 60 dias passou a valer para o
+denominador. O motivo está em [`docs/RESULTADOS.md`](docs/RESULTADOS.md).
 
-Por que denominador separado, e não a razão pronta: o denominador só conta
-pedidos cujo desfecho já **maturou** (60 dias). Enviar a razão pronta deixaria o
-chamador escolher, sem saber, um denominador não maturado — e reintroduziria
-pelo contrato o vazamento que a correção 2 eliminou no treinamento.
+Por que o chamador manda numerador e denominador em vez da razão pronta: o
+denominador conta só pedidos cujo desfecho já maturou (60 dias). O motivo
+completo está em [`docs/RESULTADOS.md`](docs/RESULTADOS.md).
 
 Solicitante anonimizado (`IdSolicitante == '0'`, 16,9% das linhas) não acumula
 histórico.
 
-# Campos excluídos, e por quê
+# Campos que o serviço recusa
 
-Toda exclusão é **empírica**, não precaucional. Os testes estão em
-[`docs/VERIFICATION.md`](docs/VERIFICATION.md). O serviço **recusa** qualquer
-requisição que contenha um destes campos.
+Catorze campos são **recusados** se você os enviar, porque só existem depois da
+triagem — usá-los seria prever o passado. A lista, o teste que reprovou cada um
+e os números estão em
+[`docs/CAMPOS_POST_HOC.md`](docs/CAMPOS_POST_HOC.md).
 
-| Campo excluído | Momento real de preenchimento | Razão da exclusão |
-|---|---|---|
-| `FoiReencaminhado` | após o encaminhamento | É o próprio alvo |
-| `PrazoAtendimento` / `prazo_dias` | reescrito na prorrogação | Mediana 21 d sem prorrogação vs **31 d** com — exatamente os +10 d do art. 11 §2 da LAI. Reimportava `FoiProrrogado`. Detinha **40,5% do ganho** e inflava a PR-AUC em **+22 pp** |
-| `FoiProrrogado` | ao conceder a prorrogação | Posterior à triagem |
-| `AssuntoPedido` | atribuído **durante** a triagem | **79,6% ausente** em pedidos com 3 dias; 0,000% após respondidos. É saída da triagem, não entrada |
-| `SubAssuntoPedido` | idem | 87,5% ausente com 3 dias; ~49% ausente mesmo no longo prazo |
-| `Tag` | marcação posterior do SIC | 78,4% ausente; classificação feita depois |
-| `Situacao` | estado corrente | Codifica o desfecho |
-| `DataResposta`, `Decisao`, `EspecificacaoDecisao`, `DetalhamentoDecisao`, `MotivoNegativaAcesso`, `PrazoRestricaoAcesso` | após a resposta | Posteriores à decisão |
-| `ProtocoloPedido` / `protocolo_seq` | atribuído na abertura, mas pela **unidade registradora** | A fatia `[5:11]` do protocolo não é um sequencial neutro: separa **79×** dentro de um mesmo órgão-ano (INSS 2022: 28,38% no 1º quarto contra 0,36% no 4º). Codifica qual unidade registrou, cujo comportamento de encaminhamento é quase determinístico (H5) |
-| texto do pedido (`ResumoSolicitacao`, `DetalhamentoSolicitacao`) | na abertura | Disponível, mas **fora de escopo** pelo Termo de Abertura. Exige os arquivos `_Filtrado` (~80 MB/ano contra 7–9 MB) |
-
-Também são removidas da modelagem as **459 linhas** com
-`Situacao == "Encaminhada por Outro Órgão"`: estão em trânsito, de modo que seu
-`OrgaoDestinatario` é o receptor, não o endereçado.
+Na prática: mande só os campos das tabelas acima. Se enviar um campo recusado,
+o serviço devolve erro explicando qual foi — ver
+[Erro de vazamento](#erro-de-vazamento) abaixo.
 
 # Saídas
 
@@ -575,7 +508,7 @@ de máquina. Em ordem de aparição, não alfabética.
 | **limiar** (*threshold*) | O valor de corte acima do qual o pedido é marcado ALTO RISCO |
 | **quantil 90** | O valor que 90% dos escores não ultrapassam. Usamos como limiar para que a fila fique com os 10% mais arriscados |
 | **calibrado** | Um escore calibrado pode ser lido como probabilidade de verdade ("0,30" ≈ 30% de chance). O escore cru **não** pode: ele só serve para ordenar |
-| **regressão isotônica** | A técnica usada aqui para calibrar: aprende uma função que só cresce, mapeando escore cru em probabilidade. Como ela é feita de degraus, vários escores diferentes caem no **mesmo** degrau — um platô — e ficam empatados. Foi por isso que ela custou 0,56 pp de precisão@5% quando usada para ordenar, e por isso a fila usa o escore cru |
+| **regressão isotônica** | A técnica usada aqui para calibrar: aprende uma função que só cresce, mapeando escore cru em probabilidade. Como ela é feita de degraus, vários escores diferentes caem no **mesmo** degrau — um platô — e ficam empatados. É por isso que a fila é ordenada pelo escore cru, e não por ela |
 | **codificação de alvo** (*target encoding*) | Trocar uma categoria pela taxa histórica do que se quer prever naquela categoria. É o que `orgao_rate` faz: cada órgão vira sua própria taxa de reencaminhamento |
 | **suavização com prior** | Ao calcular a taxa de um órgão com poucos pedidos, misturar com a taxa geral para não confiar em amostra pequena. "Prior 50" = equivale a acrescentar 50 pedidos médios |
 | **vazamento** (*data leakage*) | Usar, para prever, uma informação que na hora real da decisão ainda não existiria. Faz o modelo parecer ótimo no teste e falhar em produção |

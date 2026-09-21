@@ -36,13 +36,17 @@ from lai_triagem.featurize import Preprocessor, risk_label  # noqa: E402
 ENSAIO = "--ensaio" in sys.argv
 ART = ROOT / "artifacts"
 README = ROOT / "README.md"
+# A tabela autoritativa de ganho mudou-se para docs/RESULTADOS.md quando o
+# README virou manual de uso. `auditorias/` fica de fora: registro histórico
+# cita o número do dia em que foi escrito, e regenerá-lo seria falsificá-lo.
+ALVOS = [README] + [p for p in sorted((ROOT / "docs").glob("*.md"))
+                    if p.name != "METRICAS.md"]
 
 prep = Preprocessor.from_json(ART / "preprocessor.json")
 booster = lgb.Booster(model_file=str(ART / "model_arrival.txt"))
 g = booster.feature_importance(importance_type="gain")
 GANHO = {n: 100.0 * v / float(g.sum()) for n, v in zip(booster.feature_name(), g)}
 
-texto = README.read_text(encoding="utf-8")
 mudancas = []
 
 
@@ -71,28 +75,34 @@ def pontua(payload, baseline=False):
 
 
 # ------------------------------------------------- 1. colunas de ganho
-linhas = texto.splitlines(keepends=True)
-em_tabela = False
-for i, linha in enumerate(linhas):
-    if not linha.startswith("|"):
-        em_tabela = False
-        continue
-    if "Ganho" in linha or "Uso no modelo" in linha:
-        em_tabela = True
-        continue
-    if not em_tabela or "baixo" in linha or "ausente" in linha:
-        continue
-    m = re.match(r"^\|\s*`([^`]+)`", linha)
-    if not m or m.group(1) not in GANHO:
-        continue
-    pct = re.search(r"(\d+,\d+)%", linha)
-    if not pct:
-        continue
-    novo = f"{GANHO[m.group(1)]:.2f}".replace(".", ",")
-    if pct.group(1) != novo:
-        linhas[i] = linha[:pct.start(1)] + novo + linha[pct.end(1):]
-        mudancas.append(f"ganho de `{m.group(1)}`: {pct.group(1)}% -> {novo}%")
-texto = "".join(linhas)
+for alvo in ALVOS:
+    linhas = alvo.read_text(encoding="utf-8").splitlines(keepends=True)
+    em_tabela = mudou = False
+    for i, linha in enumerate(linhas):
+        if not linha.startswith("|"):
+            em_tabela = False
+            continue
+        if "Ganho" in linha or "Uso no modelo" in linha:
+            em_tabela = True
+            continue
+        if not em_tabela or "baixo" in linha or "ausente" in linha:
+            continue
+        m = re.match(r"^\|\s*`([^`]+)`", linha)
+        if not m or m.group(1) not in GANHO:
+            continue
+        pct = re.search(r"(\d+,\d+)%", linha)
+        if not pct:
+            continue
+        novo = f"{GANHO[m.group(1)]:.2f}".replace(".", ",")
+        if pct.group(1) != novo:
+            linhas[i] = linha[:pct.start(1)] + novo + linha[pct.end(1):]
+            mudancas.append(f"{alvo.name}: ganho de `{m.group(1)}`: "
+                            f"{pct.group(1)}% -> {novo}%")
+            mudou = True
+    if mudou and not ENSAIO:
+        alvo.write_text("".join(linhas), encoding="utf-8")
+
+texto = README.read_text(encoding="utf-8")
 
 # --------------------------------------- 2. blocos de resposta e 3. prosa
 RX_CURL = re.compile(r"curl[^\n]*?-d '(\{.*?\})'", re.S)
