@@ -15,10 +15,14 @@ tabela de uma linha — na métrica que o produto entrega.
 | Escore, teste 2026 maturado | PR-AUC | prec@5% |
 |---|---|---|
 | Consulta histórica por órgão (sem modelo) | 0,1641 | **24,80%** |
-| LightGBM | 0,1789 | 21,79% |
+| LightGBM | 0,1901 | 24,23% |
 
-Perde **12,1%** em precisão@5%, que é a fila que o produto de fato entrega.
-Ganha 9,0% em PR-AUC e empata em precisão@10%. Nada disso compensa.
+Perde **2,3%** em precisão@5%, que é a fila que o produto de fato entrega.
+Ganha 15,8% em PR-AUC e 9,7% em precisão@10%.
+
+A distância encolheu muito com a correção do H10 — era −12,1% —, mas o sinal
+não mudou: na métrica que o produto entrega, **a tabela de consulta continua à
+frente**.
 
 Conjunto de teste 2026 maturado (registrados com ao menos 60 dias de
 antecedência do retrato), treino em 2022–2024, validação em 2025, taxa-base
@@ -34,9 +38,9 @@ antecedência do retrato), treino em 2022–2024, validação em 2025, taxa-base
 ## Por que o modelo é, essencialmente, a tabela de consulta
 
 Somando o ganho das quatro variáveis que são identidade do órgão —
-`orgao_rate`, `OrgaoDestinatario` e as duas taxas móveis — chega-se a **72,14%**.
-Contando também a idade do órgão, **74,98%**. Todo o histórico do solicitante
-soma **10,27%**.
+`orgao_rate`, `OrgaoDestinatario` e as duas taxas móveis — chega-se a **77,36%**.
+Contando também a idade do órgão, **79,72%**. Todo o histórico do solicitante
+soma **10,09%**.
 
 Ou seja: o modelo aprende, sobretudo, *quais órgãos são cronicamente mal
 endereçados*. E isso uma tabela de consulta já sabia.
@@ -45,36 +49,36 @@ endereçados*. E isso uma tabela de consulta já sabia.
 
 | Variável | Ganho |
 |---|---|
-| `orgao_rate` | 39,98% |
-| `OrgaoDestinatario` | 15,98% |
-| `orgao_rate_movel_90d` | 9,16% |
-| `Municipio_sol` | 8,45% |
-| `orgao_rate_movel_365d` | 7,02% |
-| `dias_desde_primeiro_pedido_do_orgao` | 2,84% |
-| `prev_reenc_rate_neste_orgao` | 2,43% |
-| `n_pedidos_previos_neste_orgao` | 2,35% |
-| `n_pedidos_previos` | 1,43% |
-| `n_orgaos_distintos_previos` | 1,26% |
-| `prev_reenc_rate_solicitante` | 1,20% |
-| `dias_desde_ultimo_pedido` | 0,93% |
-| `idade` | 0,91% |
-| `reg_month` | 0,88% |
-| `reg_day` | 0,78% |
-| `OrigemSolicitacao` | 0,55% |
-| `reg_dow` | 0,47% |
-| `Profissao` | 0,46% |
-| `prev_reenc_solicitante` | 0,45% |
-| `Municipio` | 0,44% |
-| `UF_sol` | 0,43% |
-| `UF` | 0,34% |
-| `Genero` | 0,27% |
-| `TipoDemandante` | 0,27% |
-| `prev_reenc_neste_orgao` | 0,21% |
-| `TipoPessoaJuridica` | 0,15% |
-| `Esfera` | 0,14% |
-| `Escolaridade` | 0,13% |
-| `Pais` | 0,07% |
-| `FormaResposta` | 0,03% |
+| `orgao_rate` | 44,93% |
+| `OrgaoDestinatario` | 13,86% |
+| `orgao_rate_movel_90d` | 10,97% |
+| `Municipio_sol` | 5,68% |
+| `orgao_rate_movel_365d` | 7,60% |
+| `dias_desde_primeiro_pedido_do_orgao` | 2,37% |
+| `prev_reenc_rate_neste_orgao` | 2,89% |
+| `n_pedidos_previos_neste_orgao` | 2,44% |
+| `n_pedidos_previos` | 1,20% |
+| `n_orgaos_distintos_previos` | 0,92% |
+| `prev_reenc_rate_solicitante` | 1,34% |
+| `dias_desde_ultimo_pedido` | 0,87% |
+| `idade` | 0,38% |
+| `reg_month` | 0,69% |
+| `reg_day` | 0,26% |
+| `OrigemSolicitacao` | 0,61% |
+| `reg_dow` | 0,40% |
+| `Profissao` | 0,25% |
+| `prev_reenc_solicitante` | 0,25% |
+| `Municipio` | 0,47% |
+| `UF_sol` | 0,14% |
+| `UF` | 0,66% |
+| `Genero` | 0,17% |
+| `TipoDemandante` | 0,21% |
+| `prev_reenc_neste_orgao` | 0,17% |
+| `TipoPessoaJuridica` | 0,09% |
+| `Esfera` | 0,06% |
+| `Escolaridade` | 0,07% |
+| `Pais` | 0,03% |
+| `FormaResposta` | 0,01% |
 | `uf_match` | 0,00% |
 
 Ganho é peso no ajuste das árvores, **não** causalidade: diz o quanto a variável
@@ -91,9 +95,14 @@ nas variáveis de histórico:
 - **desfecho imaturo:** 53.434 linhas consumiam resultado de pedido com menos de
   60 dias — desfecho que em produção ainda não seria conhecido.
 
-Corrigidos os dois, o ganho desapareceu. Depois vieram mais três defeitos (H7,
-H8, H9), e a cada correção a distância para a linha de base **aumentou**: de
-−0,5% para −4,3%, e daí para os −12,1% de hoje. O histórico completo, com o que
+Corrigidos os dois, o ganho desapareceu. Depois vieram mais quatro defeitos.
+Os três primeiros (H7, H8, H9) **aumentaram** a distância para a linha de base,
+de −0,5% para −4,3% e daí para −12,1%. O quarto foi na direção oposta: o
+**H10** — a codificação por órgão não usava cross-fitting, de modo que cada
+linha de treino carregava o próprio rótulo na maior variável do modelo.
+Corrigido, a distância encolheu para os **−2,3%** de hoje, e o modelo passou de
+160 para 56 árvores: ele não precisava mais daquela profundidade toda para
+explorar uma variável otimista. O histórico completo, com o que
 cada auditoria encontrou, está em [`auditorias/`](auditorias/INDICE.md).
 
 **A conclusão original do projeto volta a valer**, agora medida sobre variáveis
@@ -107,8 +116,8 @@ esvaziado a janela de 90 dias (2,81% do ganho) em favor da de 365 (10,20%).
 **Era artefato de um defeito.** O prior de suavização vinha da taxa-base de todo
 o período, 2025 e 2026 inclusive — vazamento H8.
 
-Com o prior honesto a ordem se inverte: a janela de **90 dias vale 9,16%** e a
-de 365 vale 7,02%. A janela curta é a que informa; era o vazamento que a fazia
+Com o prior honesto a ordem se inverte: a janela de **90 dias vale 10,97%** e a
+de 365 vale 7,60%. A janela curta é a que informa; era o vazamento que a fazia
 parecer inútil.
 
 ## As variáveis demográficas, e a limitação H6
@@ -145,12 +154,43 @@ razão pronta deixaria o chamador escolher, sem saber, um denominador não
 maturado — e reintroduziria pelo contrato exatamente o vazamento que a correção
 de maturação eliminou no treinamento.
 
+## O tamanho da fila é uma escolha, e hoje está chutado
+
+Isto é o maior ganho ainda não explorado, e vale explicar devagar.
+
+O modelo dá a cada pedido uma nota de risco. Ele **não** decide sozinho quem
+entra na fila de revisão: alguém precisa dizer *quantos* pedidos cabem lá. Hoje
+esse número está fixo no código como **10%** — a constante `QUEUE_FRAC`.
+
+Por que 10% é uma escolha e não um fato: imagine uma turma de 100 alunos e você
+só tem tempo de conferir a prova de alguns. Se conferir as 10 provas mais
+suspeitas, acerta menos em proporção do que se conferir só as 2 mais suspeitas
+— porque as 2 primeiras são as mais óbvias. **Quanto menor a fila, maior a
+proporção de acertos dentro dela; mas menos problemas você encontra no total.**
+
+É essa a troca, e ela é do gestor, não do modelo:
+
+- **fila menor** (2%): cada revisão vale mais a pena, e escapam mais casos;
+- **fila maior** (20%): pega mais casos, e o revisor perde mais tempo com
+  pedido que estava bem endereçado.
+
+O ponto é que **10% nunca foi escolhido** — ficou escrito no código e por lá
+permaneceu. Enquanto for constante, ninguém consegue perguntar "e se fosse
+5%?" sem editar o código e treinar de novo. Virar parâmetro é barato e
+transforma uma suposição numa decisão informada. Está registrado como pendência
+(P6).
+
+Vale dizer o que isto **não** resolve: mudar o tamanho da fila muda o
+desempenho do modelo *e* o da tabela de consulta, mais ou menos junto. Não é
+por aí que o modelo passa à frente — é por aí que se descobre qual fila entrega
+mais valor ao SIC.
+
 ## Limitações conhecidas
 
 - **`Escolaridade` 76,2% ausente**, `Profissao` 76,9%. A regra de abstenção do
   Termo de Abertura — não pontuar quando falta perfil — recusaria **77,58%** dos
   pedidos, o que não é um produto viável.
-- Variáveis demográficas somam pouco; **72,14% do ganho é identidade do órgão**,
+- Variáveis demográficas somam pouco; **77,36% do ganho é identidade do órgão**,
   e elas vêm de um retrato atual do cadastro (H6, acima).
 - Rótulos de 2026 sofrem **censura à direita** (5,75% de positivos entre os
   maturados contra 3,60% nos recentes).

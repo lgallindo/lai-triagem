@@ -171,10 +171,10 @@ Resposta:
 
 ```json
 {
-  "probabilidade_reencaminhamento": 0.220012,
+  "probabilidade_reencaminhamento": 0.31659,
   "alerta": "ALTO RISCO",
-  "threshold": 0.166564,
-  "probabilidade_calibrada": 0.21046,
+  "threshold": 0.159391,
+  "probabilidade_calibrada": 0.280263,
   "calibrada_apenas_para_leitura": true,
   "orgao_conhecido": true,
   "orgao_rate_historica": 0.478643,
@@ -199,10 +199,10 @@ Resposta:
 
 ```json
 {
-  "probabilidade_reencaminhamento": 0.349331,
+  "probabilidade_reencaminhamento": 0.354094,
   "alerta": "ALTO RISCO",
-  "threshold": 0.166564,
-  "probabilidade_calibrada": 0.317919,
+  "threshold": 0.159391,
+  "probabilidade_calibrada": 0.280263,
   "calibrada_apenas_para_leitura": true,
   "orgao_conhecido": true,
   "orgao_rate_historica": 0.478643,
@@ -213,7 +213,7 @@ Resposta:
 }
 ```
 
-O escore **sobe** de 0,220012 para 0,349331 e `historico_informado` vira
+O escore **sobe** de 0,316590 para 0,354094 e `historico_informado` vira
 `false`. O órgão é o mesmo; a diferença é tudo o que se sabe sobre o
 solicitante — e, neste caso, o histórico deste veterano **atenuava** o risco:
 saber que ele já fez 80 pedidos, 12 neste órgão, e que nenhum foi reencaminhado

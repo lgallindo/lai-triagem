@@ -54,6 +54,23 @@ def arquivo_mais_recente(ano: int, tipo: str = "Pedidos") -> Path | None:
 
 
 def ler(ano: int, colunas: list[str], tipo: str = "Pedidos") -> pd.DataFrame:
-    """Lê e limpa de uma vez, que é como todo chamador usa."""
-    return limpar(pd.read_csv(arquivo_mais_recente(ano, tipo),
-                              usecols=colunas, **READ_KW))
+    """Lê e limpa de uma vez, que é como todo chamador usa.
+
+    O `None` de `arquivo_mais_recente` vira erro explícito, e não um
+    `read_csv(None)` com mensagem obscura. O mypy apontou este caminho, e é o
+    mesmo modo de falha que já mordeu o projeto: quando a CGU trocou o prefixo
+    do retrato, arquivos sumiram **em silêncio** e a idade dos órgãos ficou
+    censurada em 2022 sem que nada reclamasse.
+    """
+    caminho = arquivo_mais_recente(ano, tipo)
+    if caminho is None:
+        raise FileNotFoundError(
+            f"não há arquivo de {tipo} para {ano} em {INTERIM}. "
+            f"Esperado algo como '*_{tipo}_csv_{ano}.csv'.")
+    # `type: ignore` justificado, e não por preguiça: `read_csv` é uma função
+    # sobrecarregada, e o mypy não consegue casar `**kwargs` desempacotado de
+    # um `dict` contra sobrecargas. Limitação conhecida da ferramenta, não
+    # defeito do código — e a alternativa, repetir os argumentos aqui, criaria
+    # uma segunda cópia de READ_KW, que é exatamente o que este módulo existe
+    # para evitar.
+    return limpar(pd.read_csv(caminho, usecols=colunas, **READ_KW))  # type: ignore[call-overload]
