@@ -134,10 +134,26 @@ CAT_ASSUNTO = ["AssuntoPedido", "SubAssuntoPedido"]
 
 
 def _clean(df):
+    """Corta espaço das bordas de todo texto, e do nome das colunas.
+
+    H9: a versão anterior testava `df[c].dtype == object` e **não cortava
+    nada**. `READ_KW` passa `dtype=str`, e o pandas moderno devolve o dtype
+    `str` (PDEP-14), não `object` — a condição nunca era verdadeira. A função
+    parecia proteção e era no-op, silenciosamente, desde a troca de dtype.
+
+    O que isso custou: 162 chaves com espaço nas bordas ficaram nas tabelas do
+    artefato. O serviço corta o texto que recebe (`featurize.py`), então esses
+    41 órgãos **nunca eram encontrados** e recaíam na taxa-base — 1,41% dos
+    pedidos de 2026. Pior, três identidades ficaram partidas em duas no próprio
+    treino: `Prefeitura Municipal` aparecia como 1.878 pedidos com espaço e
+    16.446 sem, como se fossem órgãos diferentes.
+
+    `select_dtypes` em vez de comparar dtype na mão, para não depender de qual
+    representação de texto o pandas resolve usar.
+    """
     df.columns = [c.strip() for c in df.columns]
-    for c in df.columns:
-        if df[c].dtype == object:
-            df[c] = df[c].str.strip()
+    for c in df.select_dtypes(include=["object", "string"]).columns:
+        df[c] = df[c].str.strip()
     return df
 
 

@@ -35,17 +35,24 @@ envelhecer. O quadro no fecho desta seção:
 | Escore, teste 2026 maturado | PR-AUC | prec@5% |
 |---|---|---|
 | Consulta histórica por órgão (sem modelo) | 0,1641 | **24,80%** |
-| LightGBM | 0,1855 | 23,74% |
+| LightGBM | 0,1789 | 21,79% |
 
-**O modelo NÃO supera a consulta por órgão na métrica primária.** Perde **4,3%**
-em precisão@5% — a fila que o produto de fato entrega. Ganha 13,0% em PR-AUC e
-7,9% em precisão@10%, o que não compensa.
+**O modelo NÃO supera a consulta por órgão na métrica primária.** Perde **12,1%**
+em precisão@5% — a fila que o produto de fato entrega. Ganha 9,0% em PR-AUC,
+empata em precisão@10%, e nada disso compensa.
 
-A explicação está no ganho por variável: `orgao_rate` 40,34% +
-`OrgaoDestinatario` 15,44% + as duas taxas móveis 16,34% somam **72,13% de
-identidade do órgão**. Todo o histórico do solicitante soma **10,33%**. Contando
-também a idade do órgão, a identidade do órgão chega a 74,92%. O modelo é,
+A explicação está no ganho por variável: `orgao_rate` 39,98% +
+`OrgaoDestinatario` 15,98% + as duas taxas móveis 16,18% somam **72,14% de
+identidade do órgão**. Todo o histórico do solicitante soma **10,27%**. Contando
+também a idade do órgão, a identidade do órgão chega a 74,98%. O modelo é,
 essencialmente, a tabela de consulta com enfeites.
+
+> **Estes números de conclusão são mantidos à mão.** O
+> `scripts/atualiza_numeros_docs.py` regenera as tabelas de ganho, os blocos de
+> resposta e os decimais de seis casas; este parágrafo usa quatro casas e fica
+> fora do alcance dele e do `check_prosa.py`. Foi aqui que morou o "84,8%"
+> errado. Ao retreinar, confira este parágrafo contra
+> [`docs/METRICAS.md`](docs/METRICAS.md) à mão.
 
 > **Este número já foi muito melhor, e era vazamento.** Versões anteriores
 > anunciavam +26,4% sobre a linha de base. Três auditorias independentes
@@ -221,10 +228,10 @@ Resposta:
 
 ```json
 {
-  "probabilidade_reencaminhamento": 0.336119,
+  "probabilidade_reencaminhamento": 0.220012,
   "alerta": "ALTO RISCO",
-  "threshold": 0.163204,
-  "probabilidade_calibrada": 0.319588,
+  "threshold": 0.166564,
+  "probabilidade_calibrada": 0.21046,
   "calibrada_apenas_para_leitura": true,
   "orgao_conhecido": true,
   "orgao_rate_historica": 0.478643,
@@ -249,10 +256,10 @@ Resposta:
 
 ```json
 {
-  "probabilidade_reencaminhamento": 0.372225,
+  "probabilidade_reencaminhamento": 0.349331,
   "alerta": "ALTO RISCO",
-  "threshold": 0.163204,
-  "probabilidade_calibrada": 0.342246,
+  "threshold": 0.166564,
+  "probabilidade_calibrada": 0.317919,
   "calibrada_apenas_para_leitura": true,
   "orgao_conhecido": true,
   "orgao_rate_historica": 0.478643,
@@ -263,7 +270,7 @@ Resposta:
 }
 ```
 
-O escore **sobe** de 0,336119 para 0,372225 e `historico_informado` vira
+O escore **sobe** de 0,220012 para 0,349331 e `historico_informado` vira
 `false`. O órgão é o mesmo; a diferença é tudo o que se sabe sobre o
 solicitante — e, neste caso, o histórico deste veterano **atenuava** o risco:
 saber que ele já fez 80 pedidos, 12 neste órgão, e que nenhum foi reencaminhado
@@ -338,21 +345,21 @@ resto é opcional e ausência é tratada como valor faltante.
 
 | Campo | Origem | Tipo | Uso no modelo | Razão da inclusão |
 |---|---|---|---|---|
-| `OrgaoDestinatario` | Pedidos | categórico | **15,44%** do ganho; alimenta as tabelas por órgão, que somam 56,69% | Órgão a que o cidadão endereçou. Sobreviveu à auditoria H2: é o endereçado, não o destinatário final |
+| `OrgaoDestinatario` | Pedidos | categórico | **15,98%** do ganho; alimenta as tabelas por órgão, que somam 56,69% | Órgão a que o cidadão endereçou. Sobreviveu à auditoria H2: é o endereçado, não o destinatário final |
 | `DataRegistro` | Pedidos | data, **`dd/mm/aaaa`** | deriva `reg_month`, `reg_dow`, `reg_day` | Único carimbo temporal disponível na chegada. Formato obrigatório: `15/09/2026` |
 | `Esfera` | Pedidos | categórico | baixo | Federal/estadual/municipal; separa regimes de competência |
 | `UF` | Pedidos | categórico | baixo | UF do pedido quando não federal |
-| `Municipio` | Pedidos | categórico | 0,42% | Município do pedido quando não federal |
+| `Municipio` | Pedidos | categórico | 0,44% | Município do pedido quando não federal |
 | `FormaResposta` | Pedidos | categórico | baixo | Escolhida pelo solicitante **na abertura** — logo, disponível |
-| `OrigemSolicitacao` | Pedidos | categórico | 0,52% | Balcão SIC vs Internet; definido na abertura |
-| `TipoDemandante` | Solicitantes | categórico | 0,25% | Pessoa física/jurídica |
+| `OrigemSolicitacao` | Pedidos | categórico | 0,55% | Balcão SIC vs Internet; definido na abertura |
+| `TipoDemandante` | Solicitantes | categórico | 0,27% | Pessoa física/jurídica |
 | `Genero` | Solicitantes | categórico | baixo | Perfil; 70,7% ausente |
 | `Escolaridade` | Solicitantes | categórico | baixo | Perfil; **76,2% ausente** — central na auditoria de equidade |
 | `Profissao` | Solicitantes | categórico | 0,43% | Perfil; 76,9% ausente |
 | `TipoPessoaJuridica` | Solicitantes | categórico | baixo | Vazio para pessoa física |
 | `Pais` | Solicitantes | categórico | baixo | País de residência |
-| `UF_sol` | Solicitantes | categórico | 0,49% | UF de residência; alimenta `uf_match` |
-| `Municipio_sol` | Solicitantes | categórico | **8,26%** | Município de residência — quarto sinal mais forte |
+| `UF_sol` | Solicitantes | categórico | 0,43% | UF de residência; alimenta `uf_match` |
+| `Municipio_sol` | Solicitantes | categórico | **8,45%** | Município de residência — quarto sinal mais forte |
 | `DataNascimento` | Solicitantes | data, **`dd/mm/aaaa`** | deriva `idade` (0,87%) | Idade na data do registro; descartada fora de 10–110 anos |
 
 ## Variáveis derivadas — lado do órgão (embarcadas no artefato)
@@ -361,10 +368,10 @@ Conduta de entidade pública; sem dado pessoal. Reajustadas a cada retreinamento
 
 | Derivada | Fórmula | Ganho |
 |---|---|---|
-| `orgao_rate` | taxa histórica suavizada do órgão, ajustada **só nos anos de treino** (prior 50 × taxa-base) | **40,34%** |
-| `orgao_rate_movel_90d` | taxa em janela móvel de 90 d, **defasada 60 d**; prior de suavização também só do treino | **9,25%** |
-| `orgao_rate_movel_365d` | idem, 365 d | 7,10% |
-| `dias_desde_primeiro_pedido_do_orgao` | idade do órgão; datada de 2012 em diante | 2,80% |
+| `orgao_rate` | taxa histórica suavizada do órgão, ajustada **só nos anos de treino** (prior 50 × taxa-base) | **39,98%** |
+| `orgao_rate_movel_90d` | taxa em janela móvel de 90 d, **defasada 60 d**; prior de suavização também só do treino | **9,16%** |
+| `orgao_rate_movel_365d` | idem, 365 d | 7,02% |
+| `dias_desde_primeiro_pedido_do_orgao` | idade do órgão; datada de 2012 em diante | 2,84% |
 | `idade` | `DataRegistro − DataNascimento`, em anos | baixo |
 | `reg_month`, `reg_dow`, `reg_day` | componentes de `DataRegistro` | baixo |
 | `uf_match` | `UF_sol == UF` | baixo |
@@ -378,11 +385,11 @@ valores que nunca aparece no treinamento, e o escore não teria significado.
 
 | Campo | Significado | Ganho |
 |---|---|---|
-| `n_pedidos_previos_neste_orgao` | pedidos anteriores deste solicitante **a este órgão** | **2,38%** |
+| `n_pedidos_previos_neste_orgao` | pedidos anteriores deste solicitante **a este órgão** | **2,35%** |
 | `n_pedidos_previos` | total de pedidos anteriores (agregado) | 1,43% |
 | `n_orgaos_distintos_previos` | amplitude: quantos órgãos distintos já acionou | 1,26% |
-| `dias_desde_ultimo_pedido` | recência da última interação; `-1` se não houver | 0,92% |
-| `prev_reenc_solicitante` | reencaminhamentos anteriores, **numerador** | 0,53% |
+| `dias_desde_ultimo_pedido` | recência da última interação; `-1` se não houver | 0,93% |
+| `prev_reenc_solicitante` | reencaminhamentos anteriores, **numerador** | 0,45% |
 | `prev_reenc_neste_orgao` | idem, restrito a este órgão, **numerador** | 0,21% |
 | `prev_reenc_solicitante_den` | **denominador maturado** do numerador acima | — |
 | `prev_reenc_neste_orgao_den` | **denominador maturado**, restrito a este órgão | — |

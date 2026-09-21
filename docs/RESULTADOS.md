@@ -43,7 +43,7 @@ este README dizia que a defasagem de 60 dias havia esvaziado a janela de 90 dias
 (2,81% do ganho) em favor da de 365 (10,20%). **Era artefato de um defeito.** O
 prior de suavização vinha da taxa-base de todo o período, 2025 e 2026 inclusive
 — vazamento H8, corrigido em 18/09/2026. Com o prior honesto, a ordem se
-inverte: a janela de 90 dias vale **9,25%** e a de 365 vale **7,10%**. A janela
+inverte: a janela de 90 dias vale **9,16%** e a de 365 vale **7,02%**. A janela
 curta é a que informa; era o vazamento que a fazia parecer inútil.
 
 
@@ -62,8 +62,9 @@ Testamos se isso prejudica o modelo. **Não prejudica de forma mensurável:** o
 ganho das demográficas é até *maior* no treino de 2022 (+0,0121 de PR-AUC), onde
 o retrato está mais defasado, do que no de 2024 (+0,0052). Sem tendência, sem
 contaminação detectável. Remover as variáveis também não mudaria nada — na
-verdade o modelo fica marginalmente **melhor** sem elas (PR-AUC 0,1883 contra
-0,1855), diferença dentro do ruído. Detalhes em
+verdade o modelo ficava marginalmente **melhor** sem elas (PR-AUC 0,1883 contra
+0,1855 na medição de 18/09/2026), diferença dentro do ruído. Ainda não foi
+remedido depois da correção de H9. Detalhes em
 `scripts/experiment_h6_mitigacao.py`.
 
 > Os dois números de ganho por ano acima (+0,0121 e +0,0052) foram medidos
@@ -81,7 +82,7 @@ retido no artefato**. Ver
 - **`Escolaridade` 76,2% ausente**, `Profissao` 76,9%. A regra de abstenção do
   Termo de Abertura — não pontuar quando falta perfil — recusaria **77,58%** dos
   pedidos, o que não é um produto viável.
-- Variáveis demográficas somam pouco; **72,13% do ganho é identidade do
+- Variáveis demográficas somam pouco; **72,14% do ganho é identidade do
   órgão**. E elas vêm de um retrato atual do cadastro, não do perfil na
   abertura do pedido — limitação H6, sem efeito mensurável medido.
 - **O ganho por variável é mantido à mão neste README e já divergiu três
