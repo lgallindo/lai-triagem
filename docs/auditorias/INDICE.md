@@ -11,6 +11,7 @@ gerado pelo treinamento.
 | [17/09/2026](2026-09-17-clareza-subagente.md) | subagente de contexto restrito | o README é seguível por um iniciante? | 9; 3 de 4 objetivos cumpridos |
 | [18/09/2026](2026-09-18-camadas-0-1.md) | o próprio autor, roteiro fixado antes | camadas 0 e 1: guardas e reprodutibilidade | 6, dos quais **2 GRAVES** |
 | [18/09/2026](2026-09-18-camadas-2-3.md) | `codex` (`gpt-5.6-sol`), fornecedor terceiro | camada 3: o README é seguível por iniciante? camada 2: código e dados | 10, dos quais **2 GRAVES** — um deles mudou o resultado principal |
+| [21/09/2026](2026-09-21-boas-praticas.md) | o próprio autor, com `ruff` e `mypy` | adequação a boas práticas antes de comparar bibliotecas | 1 defeito **vivo** (H9 corrigido em 1 de 6 cópias), 1 achado pelo mypy, e o **H10**, maior ganho de todo o processo |
 
 ## O que estas auditorias têm em comum
 

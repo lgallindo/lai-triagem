@@ -154,6 +154,37 @@ razão pronta deixaria o chamador escolher, sem saber, um denominador não
 maturado — e reintroduziria pelo contrato exatamente o vazamento que a correção
 de maturação eliminou no treinamento.
 
+## O tamanho da fila é uma escolha, e hoje está chutado
+
+Isto é o maior ganho ainda não explorado, e vale explicar devagar.
+
+O modelo dá a cada pedido uma nota de risco. Ele **não** decide sozinho quem
+entra na fila de revisão: alguém precisa dizer *quantos* pedidos cabem lá. Hoje
+esse número está fixo no código como **10%** — a constante `QUEUE_FRAC`.
+
+Por que 10% é uma escolha e não um fato: imagine uma turma de 100 alunos e você
+só tem tempo de conferir a prova de alguns. Se conferir as 10 provas mais
+suspeitas, acerta menos em proporção do que se conferir só as 2 mais suspeitas
+— porque as 2 primeiras são as mais óbvias. **Quanto menor a fila, maior a
+proporção de acertos dentro dela; mas menos problemas você encontra no total.**
+
+É essa a troca, e ela é do gestor, não do modelo:
+
+- **fila menor** (2%): cada revisão vale mais a pena, e escapam mais casos;
+- **fila maior** (20%): pega mais casos, e o revisor perde mais tempo com
+  pedido que estava bem endereçado.
+
+O ponto é que **10% nunca foi escolhido** — ficou escrito no código e por lá
+permaneceu. Enquanto for constante, ninguém consegue perguntar "e se fosse
+5%?" sem editar o código e treinar de novo. Virar parâmetro é barato e
+transforma uma suposição numa decisão informada. Está registrado como pendência
+(P6).
+
+Vale dizer o que isto **não** resolve: mudar o tamanho da fila muda o
+desempenho do modelo *e* o da tabela de consulta, mais ou menos junto. Não é
+por aí que o modelo passa à frente — é por aí que se descobre qual fila entrega
+mais valor ao SIC.
+
 ## Limitações conhecidas
 
 - **`Escolaridade` 76,2% ausente**, `Profissao` 76,9%. A regra de abstenção do
